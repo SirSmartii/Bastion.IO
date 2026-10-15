@@ -217,7 +217,9 @@
       if (k === 'g') {
         const r = resById.get(e[4]);
         if (r) { r.shake = now; r.hitT = now; }
-        if (e[6] === myId) floatText(x, y - (r ? r.r : 30), `+${e[3]} ${RES_ICON[e[5]]}`, '#ffffff');
+        // Kisten geben pro Schlag nichts (Menge 0) – nur Splitter, die Beute fällt beim Aufbrechen
+        if (e[5] === 'crate') burst(x, y, '#a8743f', 6, 110);
+        else if (e[6] === myId && e[3] > 0) floatText(x, y - (r ? r.r : 30), `+${e[3]} ${RES_ICON[e[5]]}`, '#ffffff');
       } else if (k === 'hit') burst(x, y, '#9b2f2f', 5, 120);
       else if (k === 'die') burst(x, y, '#3f5f2b', 16, 180);
       else if (k === 'hurt') burst(x, y, '#d22c2c', 6, 140);
