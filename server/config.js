@@ -56,11 +56,12 @@ module.exports = {
     maxDropDist: 160, // wie weit man Items vom Körper weg werfen kann
   },
 
-  // amount: Vorrat [min, max] – leer abgebaut zerfällt die Ressource und wächst nach respawn Sekunden woanders nach
+  // amount: Vorrat [min, max] – leer abgebaut zerfällt die Ressource und wächst nach respawn Sekunden woanders nach.
+  // bonus: Extra-Beute für den Spieler, der den letzten Schlag macht
   RESOURCES: {
-    tree: { count: 360, minR: 42, maxR: 62, solid: 0.7, gives: 'wood', amount: [60, 110], respawn: 60 },
-    rock: { count: 220, minR: 34, maxR: 50, solid: 0.9, gives: 'stone', amount: [80, 140], respawn: 90 },
-    gold: { count: 70, minR: 28, maxR: 38, solid: 0.9, gives: 'gold', amount: [30, 60], respawn: 150 },
+    tree: { count: 360, minR: 42, maxR: 62, solid: 0.7, gives: 'wood', amount: [60, 110], respawn: 60, bonus: { wood: 10 } },
+    rock: { count: 220, minR: 34, maxR: 50, solid: 0.9, gives: 'stone', amount: [80, 140], respawn: 90, bonus: { stone: 10 } },
+    gold: { count: 70, minR: 28, maxR: 38, solid: 0.9, gives: 'gold', amount: [30, 60], respawn: 150, bonus: { gold: 5 } },
   },
   RESOURCE_MIN_SCALE: 0.55, // so klein wird eine fast leere Ressource
 
@@ -216,6 +217,29 @@ module.exports = {
         { hp: 1200, cost: { stone: 30, gold: 5 } },
         { hp: 2200, cost: { stone: 50, gold: 20 } },
         { hp: 3600, cost: { stone: 80, gold: 50 } },
+      ],
+    },
+    // Tür: nur der Besitzer läuft hindurch. Fenster: niemand läuft hindurch, aber Pfeile fliegen durch.
+    door: {
+      name: 'Tür', size: 1, category: 'defense', passOwner: true,
+      desc: 'Nur du kannst hindurchgehen – Gegner müssen sie einschlagen.',
+      levels: [
+        { hp: 220, cost: { wood: 15 } },
+        { hp: 520, cost: { wood: 15, stone: 15 } },
+        { hp: 1050, cost: { stone: 30, gold: 5 } },
+        { hp: 1900, cost: { stone: 50, gold: 20 } },
+        { hp: 3100, cost: { stone: 80, gold: 50 } },
+      ],
+    },
+    window: {
+      name: 'Fenster', size: 1, category: 'defense', shootThrough: true,
+      desc: 'Blockiert wie eine Mauer, aber Pfeile fliegen hindurch.',
+      levels: [
+        { hp: 160, cost: { wood: 12, stone: 4 } },
+        { hp: 420, cost: { wood: 10, stone: 15 } },
+        { hp: 850, cost: { stone: 30, gold: 5 } },
+        { hp: 1500, cost: { stone: 50, gold: 20 } },
+        { hp: 2500, cost: { stone: 80, gold: 50 } },
       ],
     },
     spike: {

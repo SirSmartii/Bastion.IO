@@ -32,7 +32,9 @@ und bei jedem Neustart/Deploy beginnt die Welt von vorn (der Spielstand liegt nu
 - Fleisch essen: `H` oder Rechtsklick im Inventar (+30 HP)
 - **Baumenü** (`B`): Gebäude nach Kategorien *Basis*, *Verteidigung* und *Wirtschaft*. Gewählt wird per Klick, platziert mit Linksklick (Ziehen baut Reihen). `1` = Axt, `2` = zuletzt gewähltes Gebäude
 - **Basis-Kern** platzieren → definiert Bauradius & Gebäude-Limit
-- Mauern, Stacheln, Türme, Minen im Radius bauen; mit `E` upgraden (5 Stufen: Holz → Stein → Gold → Diamant → Rubin)
+- Letzter Schlag auf eine Ressource gibt einen **Abbau-Bonus** (+10 Holz / +10 Stein / +5 Gold)
+- Gebäude sind für alle massiv, auch für dich. **Türen** lassen nur ihren Besitzer durch, **Fenster** blockieren jeden, lassen aber Pfeile durch
+- Mauern, Türen, Fenster, Stacheln, Türme, Minen im Radius bauen; mit `E` upgraden (5 Stufen: Holz → Stein → Gold → Diamant → Rubin)
 - Gebäude können höchstens das Level des Kerns erreichen → Kern-Upgrades sind der Fortschritt
 - **Schmiede** (max. 1): Mit `F` daneben öffnen und Äxte & Kleidung herstellen (Reiter *Äxte* / *Kleidung*). Das Schmiede-Level schaltet Rezepte frei
 - **Charakter** (`C`): Ausrüstungs-Slots Mütze, Shirt, Hose, Schuhe und Waffe sowie alle Werte (Leben, Rüstung, Schaden, Abbau, Tempo, Angriffe/s, Regeneration, Reichweite). Öffnet zusammen mit dem Inventar (`Tab`) nebeneinander

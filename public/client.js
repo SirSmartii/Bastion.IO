@@ -46,8 +46,8 @@
 
   function resize() {
     dpr = window.devicePixelRatio || 1;
-    W = innerWidth;
-    H = innerHeight;
+    W = Math.max(1, innerWidth); // nie 0: ein 0-px-Canvas lässt drawImage() werfen
+    H = Math.max(1, innerHeight);
     canvas.width = shadow.width = Math.round(W * dpr);
     canvas.height = shadow.height = Math.round(H * dpr);
     canvas.style.width = W + 'px';
@@ -183,7 +183,10 @@
       else if (k === 'up') { burst(x, y, '#ffd84a', 18, 200); floatText(x, y - 30, 'Upgrade!', '#ffd84a'); }
       else if (k === 'mine' && e[4] === myId) floatText(x, y - 20, `+${e[3]} 🪙`, '#ffd84a');
       else if (k === 'pick' && e[5] === myId) floatText(x, y - 20, `+${e[3]} ${RES_ICON[e[4]]}`, '#9fe870');
-      else if (k === 'deplete') {
+      else if (k === 'bonus' && e[5] === myId) {
+        const txt = Object.entries(e[4]).map(([item, n]) => `+${n} ${RES_ICON[item]}`).join(' ');
+        floatText(x, y - 50, `Abbau-Bonus! ${txt}`, '#ffd76a');
+      } else if (k === 'deplete') {
         const col = { tree: '#3b8535', rock: '#8b9196', gold: '#f4c63d' }[e[4]];
         burst(x, y, col, 26, 260);
         burst(x, y, '#6b4a2a', 10, 160);
@@ -717,6 +720,46 @@
           ctx.stroke();
         }
         break;
+      case 'door': {
+        // Schwelle + zwei Pfosten; das Türblatt schwingt auf, wenn der Besitzer davorsteht
+        rrect(-h + 2, -h + 10, h * 2 - 4, h * 2 - 20, 4, 'rgba(60,44,30,0.55)');
+        rrect(-h + 2, -9, 9, 18, 3, d, '#1f1f1f', 2);
+        rrect(h - 11, -9, 9, 18, 3, d, '#1f1f1f', 2);
+        const self = players.get(myId);
+        const open = !ghost && s.owner === myId && self && Math.hypot(self.dx - s.x, self.dy - s.y) < h + 45;
+        s.openAnim = (s.openAnim || 0) + ((open ? 1 : 0) - (s.openAnim || 0)) * 0.2;
+        ctx.save();
+        ctx.translate(-h + 11, 0);
+        ctx.rotate(-s.openAnim * Math.PI * 0.5);
+        rrect(0, -6, h * 2 - 22, 12, 3, c, d, 3);
+        ctx.strokeStyle = d;
+        ctx.lineWidth = 1.5;
+        for (const px of [h * 0.5, h]) {
+          ctx.beginPath();
+          ctx.moveTo(px, -5); ctx.lineTo(px, 5);
+          ctx.stroke();
+        }
+        circle(h * 2 - 30, 0, 2.5, '#2a2a2a');
+        ctx.restore();
+        break;
+      }
+      case 'window': {
+        // Rahmen in Level-Farbe, Glas mit Sprossen
+        rrect(-h + 2, -h + 2, h * 2 - 4, h * 2 - 4, 6, c, d, 4);
+        rrect(-h + 10, -h + 10, h * 2 - 20, h * 2 - 20, 3, 'rgba(160,215,255,0.55)', d, 2);
+        ctx.strokeStyle = d;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, -h + 10); ctx.lineTo(0, h - 10);
+        ctx.moveTo(-h + 10, 0); ctx.lineTo(h - 10, 0);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-h + 14, -6); ctx.lineTo(-6, -h + 14);
+        ctx.stroke();
+        break;
+      }
       case 'forge': {
         rrect(-h + 2, -h + 2, h * 2 - 4, h * 2 - 4, 6, '#4a4440', d, 4);
         // Glut
@@ -1345,7 +1388,7 @@
 
   function drawLighting() {
     const dark = darkness();
-    if (dark < 0.01) return;
+    if (dark < 0.01 || !shadow.width || !shadow.height) return;
     sctx.setTransform(1, 0, 0, 1, 0, 0);
     sctx.globalCompositeOperation = 'source-over';
     sctx.clearRect(0, 0, shadow.width, shadow.height);

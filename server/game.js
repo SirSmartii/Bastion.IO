@@ -144,10 +144,14 @@ class Game {
   }
 
   // Abbauen: Größe schrumpft mit dem Vorrat, leer = zerfällt und wächst später woanders nach
-  depleteResource(o, n) {
+  depleteResource(o, n, p) {
     o.amount -= n;
     const def = C.RESOURCES[o.type];
     if (o.amount <= 0) {
+      if (p && def.bonus) {
+        for (const [item, k] of Object.entries(def.bonus)) this.give(p, item, k, o.x, o.y);
+        this.events.push([Math.round(o.x), Math.round(o.y), 'bonus', 0, def.bonus, p.id]);
+      }
       this.statics.remove(o);
       this.resources.splice(this.resources.indexOf(o), 1);
       this.resChanged.delete(o.id);
@@ -223,9 +227,15 @@ class Game {
 
   placeAtSpawn(p) {
     if (p.core) {
-      const a = rand(0, TAU);
-      p.x = p.core.x + Math.cos(a) * 90;
-      p.y = p.core.y + Math.sin(a) * 90;
+      // Freien Platz neben dem Kern suchen (Gebäude sind auch für den Besitzer massiv)
+      const c = p.core;
+      for (let tries = 0; tries < 40; tries++) {
+        const a = rand(0, TAU), d = c.half + p.r + 8 + Math.floor(tries / 8) * 25;
+        const x = c.x + Math.cos(a) * d, y = c.y + Math.sin(a) * d;
+        if (this.isFree(x, y, p.r + 2)) { p.x = x; p.y = y; return; }
+      }
+      p.x = c.x + c.half + p.r + 8;
+      p.y = c.y;
       return;
     }
     const W = C.WORLD_SIZE;
@@ -652,8 +662,8 @@ class Game {
       p.x += (mx / l) * spd * dt;
       p.y += (my / l) * spd * dt;
     }
-    // Eigene Gebäude sind für den Besitzer begehbar (sonst bräuchte man Türen)
-    this.collideStatics(p, (s) => s.owner !== p.id);
+    // Gebäude sind massiv; nur eigene Türen lassen den Besitzer durch
+    this.collideStatics(p, (s) => !(s.owner === p.id && C.STRUCTURES[s.type].passOwner));
     p.x = clamp(p.x, p.r, C.WORLD_SIZE - p.r);
     p.y = clamp(p.y, p.r, C.WORLD_SIZE - p.r);
     this.pickupItems(p);
@@ -721,7 +731,7 @@ class Game {
           p.score += got;
           this.lbDirty = true;
           this.events.push([Math.round(o.x), Math.round(o.y), 'g', got, o.id, kind, p.id]);
-          this.depleteResource(o, got);
+          this.depleteResource(o, got, p);
         }
       } else if (circleHitsRect(hx, hy, hr * 0.6, o)) {
         if (o.owner === p.id) this.repair(p, o);
@@ -986,7 +996,7 @@ class Game {
       }
       if (!hit && b.fromPlayer) {
         for (const o of this.statics.query(b.x, b.y, 10)) {
-          if (o.kind === 'res' ? Math.hypot(o.x - b.x, o.y - b.y) < o.cr : o.owner !== b.owner && circleHitsRect(b.x, b.y, 3, o)) { hit = true; break; }
+          if (o.kind === 'res' ? Math.hypot(o.x - b.x, o.y - b.y) < o.cr : o.owner !== b.owner && !C.STRUCTURES[o.type].shootThrough && circleHitsRect(b.x, b.y, 3, o)) { hit = true; break; }
         }
       }
       if (!hit && b.life > 0) keep.push(b);
