@@ -95,12 +95,20 @@ function hitsStatic(o, x, y, r) {
 
 const lv = (s) => C.STRUCTURES[s.type].levels[s.level];
 
+// Spieler mit Account haben eine feste ID (ACC_BASE + Account-ID), damit ihre Basen über Logins
+// und Serverneustarts hinweg zugeordnet bleiben. Gäste bekommen eine fortlaufende uid().
+const ACC_BASE = 1e9;
+const NAME_RE = /^[\p{L}\p{N}_\-.]+$/u;
+
 class Game {
-  constructor() {
+  // opts.db: Db-Instanz (server/db.js) für Accounts & Speichern; ohne db nur Gäste
+  constructor(opts = {}) {
+    this.db = opts.db || null;
     this.players = new Map();
     this.zombies = new Map();
     this.structures = new Map();
     this.items = new Map(); // Items am Boden
+    this.teams = new Map(); // id -> { id, name, leader, members: [Spieler-IDs] }
     this.resources = [];
     this.resPending = []; // { type, at } – nachwachsende Ressourcen
     this.resChanged = new Map(); // id -> Restanteil (an alle Clients)
@@ -115,14 +123,25 @@ class Game {
     this.now = 0;
     this.lbTimer = 0;
     this.lbDirty = true;
+    this.saveT = 0;
+    this.upCostT = 0;
+    this.savedOwners = new Set(); // Account-IDs, deren Basis zuletzt gespeichert wurde
+    if (this.db) {
+      const t = +this.db.getMeta('time');
+      if (t > 0) this.time = t; // Tageszahl & Spawnschutz-Zeiten laufen über Neustarts weiter
+    }
     this.genWorld();
+    this.loadBases();
   }
 
   get day() { return Math.floor(this.time / this.cycle) + 1; }
   get isNight() { return this.time % this.cycle >= C.DAY_LENGTH; }
 
   genWorld() {
-    this.world = generateWorld(C.MAP.seed || Math.floor(Math.random() * 2 ** 31));
+    // Mit Datenbank bleibt die Welt über Neustarts gleich (gespeicherte Basen passen dann zum Gelände)
+    const seed = C.MAP.seed || (this.db && +this.db.getMeta('seed')) || Math.floor(Math.random() * 2 ** 31);
+    if (this.db) this.db.setMeta('seed', seed);
+    this.world = generateWorld(seed);
     for (const [x, y, r] of this.world.lakes) this.statics.insert({ kind: 'water', x, y, r, cr: r, br: r });
     const half = C.TILE / 2;
     for (const city of this.world.cities) {
@@ -202,46 +221,100 @@ class Game {
   // ---------- Verbindungen ----------
 
   onConnection(conn) {
-    let player = null;
+    let player = null, busy = false, closed = false, lastTry = 0;
+    const authErr = (err) => conn.send(JSON.stringify({ t: 'auth', err }));
     conn.on('message', (raw) => {
       if (raw.length > 2048) return;
       let msg;
       try { msg = JSON.parse(raw); } catch (_) { return; }
       if (!msg || typeof msg !== 'object') return;
       if (!player) {
-        if (msg.t === 'join') player = this.addPlayer(conn, msg.name);
+        if (busy) return;
+        if (msg.t === 'join') {
+          // Gast: wird nicht gespeichert; Namen von Accounts sind gesperrt
+          const name = this.cleanName(msg.name);
+          if (this.db && this.db.findAccount(name)) return authErr('Dieser Name gehört zu einem Account – bitte einloggen.');
+          player = this.addPlayer(conn, name);
+        } else if (msg.t === 'login' || msg.t === 'register') {
+          if (Date.now() - lastTry < C.ACCOUNTS.loginCooldown * 1000) return authErr('Bitte kurz warten.');
+          lastTry = Date.now();
+          busy = true;
+          this.authenticate(msg).then((acc) => {
+            busy = false;
+            if (closed) return;
+            if (this.players.has(ACC_BASE + acc.id)) return authErr('Dieser Account ist bereits im Spiel.');
+            player = this.addPlayer(conn, acc.username, acc);
+          }, (e) => {
+            busy = false;
+            if (!closed) authErr(e.message);
+          });
+        }
         return;
       }
       this.handle(player, msg);
     });
-    conn.on('close', () => { if (player) this.removePlayer(player); });
+    conn.on('close', () => {
+      closed = true;
+      if (player) this.removePlayer(player);
+    });
   }
 
-  addPlayer(conn, name) {
-    name = String(name || '').replace(/[^\p{L}\p{N} _\-.!?]/gu, '').trim().slice(0, 16) || 'Überlebender';
+  cleanName(name) {
+    return String(name || '').replace(/[^\p{L}\p{N} _\-.!?]/gu, '').trim().slice(0, 16) || 'Überlebender';
+  }
+
+  // Login oder Registrierung prüfen; liefert { id, username } oder wirft einen Fehler mit Text für den Spieler
+  async authenticate(msg) {
+    const A = C.ACCOUNTS;
+    if (!this.db) throw new Error('Accounts sind auf diesem Server deaktiviert – spiel als Gast.');
+    const user = String(msg.user || '').trim(), pass = String(msg.pass || '');
+    if (user.length < A.nameMin || user.length > A.nameMax || !NAME_RE.test(user)) {
+      throw new Error(`Name: ${A.nameMin}–${A.nameMax} Zeichen (Buchstaben, Zahlen, _ - .).`);
+    }
+    if (pass.length < A.passMin || pass.length > A.passMax) throw new Error(`Passwort: ${A.passMin}–${A.passMax} Zeichen.`);
+    if (msg.t === 'register') return this.db.register(user, pass);
+    const acc = await this.db.login(user, pass);
+    if (!acc) throw new Error('Name oder Passwort falsch.');
+    return acc;
+  }
+
+  addPlayer(conn, name, acc = null) {
+    if (!acc) name = this.cleanName(name);
     const P = C.PLAYER;
     const p = {
-      id: uid(), kind: 'p', conn, name, x: 0, y: 0, r: P.radius, br: P.radius,
+      id: acc ? ACC_BASE + acc.id : uid(), account: acc ? acc.id : 0, kind: 'p', conn, name, x: 0, y: 0, r: P.radius, br: P.radius,
       angle: 0, hp: P.hp, maxHp: P.hp, keys: 0, attacking: false, atkCd: 0, swings: 0,
       inv: Inv.create(), equip: {}, stats: null, core: null, forge: null, count: 0, counts: {},
       score: 0, kills: 0, dead: false, respawnT: 0, lastHurt: -99, spawnCd: 3, fullMsgT: -99, eatT: -99,
       stamina: P.stamina, sprinting: false, exhausted: false, sprintStop: -99, ammoMsgT: -99, ammoPref: {},
       level: 1, xp: 0, sp: 0, skills: {}, hotbar: new Array(C.HOTBAR_SIZE).fill(null),
+      team: 0, invites: new Map(), chest: 0, chatT: -99,
     };
-    for (const [item, n] of Object.entries(P.startRes)) Inv.add(p.inv, item, n);
-    for (const sl of C.EQUIP_SLOTS) p.equip[sl.id] = P.startEquip[sl.id] || null;
-    p.hotbar[0] = p.equip.weapon;
+    const saved = acc && this.db ? this.db.loadCharacter(acc.id) : null;
+    if (acc) this.attachBase(p); // Basis lief offline weiter (inkl. Unterhalt & Verfall)
+    if (saved) {
+      this.applySave(p, saved);
+    } else {
+      for (const [item, n] of Object.entries(P.startRes)) Inv.add(p.inv, item, n);
+      for (const sl of C.EQUIP_SLOTS) p.equip[sl.id] = P.startEquip[sl.id] || null;
+      p.hotbar[0] = p.equip.weapon;
+    }
     this.computeStats(p);
-    p.hp = p.maxHp;
-    this.placeAtSpawn(p);
+    // Gespeicherte Position nur, wenn sie noch frei ist (sonst: an der Basis bzw. zufällig)
+    if (saved && !saved.dead && saved.hp > 0 && this.isFree(p.x, p.y, p.r + 2)) {
+      p.hp = clamp(saved.hp, 1, p.maxHp);
+    } else {
+      p.hp = p.maxHp;
+      this.placeAtSpawn(p);
+    }
     this.players.set(p.id, p);
     this.lbDirty = true;
     conn.send(JSON.stringify({
-      t: 'init', id: p.id,
+      t: 'init', id: p.id, acc: acc ? acc.username : null,
       cfg: {
         WORLD_SIZE: C.WORLD_SIZE, TILE: C.TILE, VIEW: C.VIEW, PVP: C.PVP,
         DAY_LENGTH: C.DAY_LENGTH, NIGHT_LENGTH: C.NIGHT_LENGTH,
-        PLAYER: C.PLAYER, AMMO: C.AMMO, SKILLS: C.SKILLS, HOTBAR_SIZE: C.HOTBAR_SIZE, EQUIPMENT: C.EQUIPMENT, EQUIP_SLOTS: C.EQUIP_SLOTS, FORGE_TABS: C.FORGE_TABS, RESOURCE_MIN_SCALE: C.RESOURCE_MIN_SCALE, INVENTORY: C.INVENTORY, ITEMS: C.ITEMS, STRUCTURES: C.STRUCTURES, ENEMIES: C.ENEMIES, BUILD_CATEGORIES: C.BUILD_CATEGORIES, MINIMAP_RANGE: C.MINIMAP_RANGE, MAP: C.MAP,
+        PLAYER: C.PLAYER, AMMO: C.AMMO, SKILLS: C.SKILLS, HOTBAR_SIZE: C.HOTBAR_SIZE, EQUIPMENT: C.EQUIPMENT, EQUIP_SLOTS: C.EQUIP_SLOTS, FORGE_TABS: C.FORGE_TABS, RESOURCE_MIN_SCALE: C.RESOURCE_MIN_SCALE, INVENTORY: C.INVENTORY, ITEMS: C.ITEMS, STRUCTURES: C.STRUCTURES, ENEMIES: C.ENEMIES, BUILD_CATEGORIES: C.BUILD_CATEGORIES, MINIMAP_RANGE: C.MINIMAP_RANGE, MAP: C.MAP, TEAM: C.TEAM, CHAT: C.CHAT, UPKEEP: C.UPKEEP,
       },
       res: this.resources.map((r) => this.resWire(r)),
       world: {
@@ -249,6 +322,11 @@ class Game {
         cities: this.world.cities.map((c) => ({ x: c.x, y: c.y, r: c.r, name: c.name, buildings: c.buildings, ruins: c.ruins, streets: c.streets })),
       },
     }));
+    if (saved) {
+      this.msg(p, `Willkommen zurück, ${p.name}!${p.core ? '' : ' Deine Basis ist nicht mehr da – baue eine neue.'}`);
+      if (p.core && p.core.decaying) this.msg(p, '⚠ Deine Basis verfällt! Lege Ressourcen in den Basis-Kern [F].');
+      return p;
+    }
     // Spawnschutz bis zum nächsten Einbruch der Nacht, danach eine ruhige erste Nacht (ohne Horde)
     const dayIdx = Math.floor(this.time / this.cycle);
     const nightStart = (this.isNight ? dayIdx + 1 : dayIdx) * this.cycle + C.DAY_LENGTH;
@@ -257,7 +335,126 @@ class Game {
     p.protectNote = 0;
     this.msg(p, 'Sammle Holz & Stein und baue deinen Basis-Kern (Baumenü [B])!');
     this.msg(p, '🛡 Spawnschutz bis zur ersten Nacht – Gegner greifen dich nicht an.');
+    if (acc) this.saveCharacter(p); // Account sofort mit Startausrüstung anlegen
     return p;
+  }
+
+  // ---------- Speichern & Laden ----------
+
+  // Spielstand eines Charakters (alles, was beim nächsten Login wiederhergestellt wird)
+  serializePlayer(p) {
+    return {
+      v: 1, x: Math.round(p.x), y: Math.round(p.y), hp: Math.round(p.hp), dead: p.dead,
+      inv: p.inv.map((s) => (s ? [s.item, s.n] : 0)), equip: p.equip, hotbar: p.hotbar,
+      level: p.level, xp: p.xp, sp: p.sp, skills: p.skills, ammoPref: p.ammoPref, score: p.score, kills: p.kills,
+      protectUntil: p.protectUntil, calmUntil: p.calmUntil, protectNote: p.protectNote,
+    };
+  }
+
+  // Gespeicherten Stand übernehmen – defensiv, damit geänderte Configs alte Spielstände nicht kaputt machen
+  applySave(p, d) {
+    const num = (v, def = 0) => (Number.isFinite(+v) ? +v : def);
+    p.x = clamp(num(d.x, C.WORLD_SIZE / 2), p.r, C.WORLD_SIZE - p.r);
+    p.y = clamp(num(d.y, C.WORLD_SIZE / 2), p.r, C.WORLD_SIZE - p.r);
+    p.inv = Inv.create();
+    // Slot für Slot zurücklegen; unbekannte Items fallen weg, Überzähliges geht in freie Slots
+    (d.inv || []).forEach((s, i) => {
+      if (!s || !this.isKnownItem(s[0]) || !(s[1] > 0)) return;
+      if (i < p.inv.length && !p.inv[i] && s[1] <= Inv.stackOf(s[0])) p.inv[i] = { item: s[0], n: s[1] | 0 };
+      else Inv.add(p.inv, s[0], s[1] | 0);
+    });
+    for (const sl of C.EQUIP_SLOTS) {
+      const item = d.equip && d.equip[sl.id];
+      p.equip[sl.id] = item && C.EQUIPMENT[item] && C.EQUIPMENT[item].slot === sl.id ? item : null;
+    }
+    (d.hotbar || []).slice(0, C.HOTBAR_SIZE).forEach((item, i) => { p.hotbar[i] = item && this.isKnownItem(item) ? item : null; });
+    p.level = Math.max(1, num(d.level, 1) | 0);
+    p.xp = Math.max(0, num(d.xp));
+    p.sp = Math.max(0, num(d.sp) | 0);
+    p.skills = {};
+    for (const sk of C.SKILLS) {
+      const r = num(d.skills && d.skills[sk.id]) | 0;
+      if (r > 0) p.skills[sk.id] = Math.min(sk.max, r);
+    }
+    p.ammoPref = {};
+    for (const [g, item] of Object.entries(d.ammoPref || {})) if (C.AMMO[g] && typeof item === 'string') p.ammoPref[g] = item;
+    p.score = Math.max(0, num(d.score) | 0);
+    p.kills = Math.max(0, num(d.kills) | 0);
+    p.protectUntil = num(d.protectUntil);
+    p.calmUntil = num(d.calmUntil);
+    p.protectNote = num(d.protectNote, 2);
+  }
+
+  saveCharacter(p) {
+    if (!this.db || !p.account) return;
+    this.db.saveCharacter(p.account, this.serializePlayer(p));
+  }
+
+  // Eigene Gebäude (offline weitergelaufen) wieder dem Spieler zuordnen
+  attachBase(p) {
+    for (const s of this.structures.values()) {
+      if (s.owner !== p.id) continue;
+      if (s.type === 'core') { p.core = s; continue; }
+      p.count++;
+      p.counts[s.type] = (p.counts[s.type] || 0) + 1;
+      if (s.type === 'forge') p.forge = s;
+    }
+  }
+
+  // Gebäude als speicherbare Liste
+  serializeBase(list) {
+    return list.map((s) => {
+      const o = { type: s.type, x: s.x, y: s.y, level: s.level, hp: Math.round(s.hp) };
+      if (s.items) o.items = s.items.map((it) => (it ? [it.item, it.n] : 0));
+      if (s.type === 'core') { o.upkeepT = Math.round(s.upkeepT); o.decaying = !!s.decaying; }
+      return o;
+    });
+  }
+
+  // Beim Serverstart: alle gespeicherten Basen (auch von Offline-Spielern) in die Welt setzen
+  loadBases() {
+    if (!this.db) return;
+    for (const { accountId, structures } of this.db.loadBases()) {
+      const owner = ACC_BASE + accountId;
+      // Ohne Kern ist eine Basis wertlos
+      if (!structures.some((o) => o.type === 'core')) continue;
+      for (const o of structures) {
+        const def = C.STRUCTURES[o.type];
+        if (!def || !def.levels[o.level]) continue;
+        const half = (def.size * C.TILE) / 2, L = def.levels[o.level];
+        const s = {
+          id: uid(), kind: 's', type: o.type, owner, x: o.x, y: o.y, half, br: half * 1.42,
+          level: o.level, hp: clamp(o.hp, 1, L.hp), maxHp: L.hp, cd: o.type === 'mine' ? def.interval : 0, angle: 0,
+        };
+        if (L.slots) {
+          s.items = new Array(L.slots).fill(null);
+          (o.items || []).forEach((it, i) => { if (it && i < s.items.length && this.isKnownItem(it[0]) && it[1] > 0) s.items[i] = { item: it[0], n: it[1] | 0 }; });
+        }
+        if (o.type === 'core') { s.upkeepT = clamp(+o.upkeepT || C.UPKEEP.interval, 0, C.UPKEEP.interval); s.decaying = !!o.decaying; }
+        this.structures.set(s.id, s);
+        this.statics.insert(s);
+      }
+      this.savedOwners.add(accountId);
+    }
+  }
+
+  // Alles speichern: Weltzeit, Charaktere aller eingeloggten Spieler, alle Account-Basen
+  saveAll() {
+    if (!this.db) return;
+    const bases = new Map();
+    for (const s of this.structures.values()) {
+      if (s.owner < ACC_BASE) continue;
+      const id = s.owner - ACC_BASE;
+      if (!bases.has(id)) bases.set(id, []);
+      bases.get(id).push(s);
+    }
+    this.db.transaction(() => {
+      this.db.setMeta('time', this.time.toFixed(2));
+      for (const p of this.players.values()) this.saveCharacter(p);
+      for (const [id, list] of bases) this.db.saveBase(id, this.serializeBase(list));
+      for (const id of this.savedOwners) if (!bases.has(id)) this.db.deleteBase(id); // Basis zerstört/verfallen
+    });
+    this.savedOwners = new Set(bases.keys());
   }
 
   isProtected(p) { return !!p && this.time < p.protectUntil; }
@@ -275,9 +472,220 @@ class Game {
   }
 
   removePlayer(p) {
-    if (p.core) this.destroyStructure(p.core);
+    this.leaveTeam(p, true);
+    for (const o of this.players.values()) o.invites.delete(p.id);
+    // Accounts: Charakter speichern, die Basis bleibt in der Welt. Gäste nehmen ihre Basis mit.
+    if (p.account && this.db) {
+      try { this.saveAll(); } catch (e) { console.error('Speichern fehlgeschlagen:', e); }
+    } else if (p.core) this.destroyStructure(p.core);
     this.players.delete(p.id);
     this.lbDirty = true;
+  }
+
+  // ---------- Teams ----------
+
+  teamOf(p) { return (p && p.team && this.teams.get(p.team)) || null; }
+
+  // Gehört ownerId zu p selbst oder zu seinem Team? (Türen, Truhen, Reparieren, kein Eigenbeschuss)
+  allied(p, ownerId) {
+    if (!p) return false;
+    if (p.id === ownerId) return true;
+    const o = this.players.get(ownerId);
+    return !!(o && p.team && o.team === p.team);
+  }
+
+  teamMsg(team, text) {
+    for (const id of team.members) { const m = this.players.get(id); if (m) this.msg(m, text); }
+  }
+
+  invite(p, targetId) {
+    const t = this.players.get(targetId);
+    if (!t || t === p) return;
+    const team = this.teamOf(p);
+    if (t.team && t.team === p.team) return this.msg(p, `${t.name} ist schon in deinem Team.`);
+    if (t.team) return this.msg(p, `${t.name} ist bereits in einem Team.`);
+    if (team && team.members.length >= C.TEAM.maxSize) return this.msg(p, `Dein Team ist voll (max. ${C.TEAM.maxSize}).`);
+    const prev = t.invites.get(p.id);
+    if (prev && this.now - prev < 5) return;
+    t.invites.set(p.id, this.now);
+    this.msg(t, `👥 ${p.name} lädt dich in ein Team ein – [T] zum Annehmen.`);
+    this.msg(p, `Einladung an ${t.name} gesendet.`);
+  }
+
+  // Einladung annehmen: Team des Einladenden beitreten (oder mit ihm ein neues gründen)
+  acceptInvite(p, fromId) {
+    const at = p.invites.get(fromId);
+    p.invites.delete(fromId);
+    const from = this.players.get(fromId);
+    if (at === undefined || !from || this.now - at > C.TEAM.inviteTime) return this.msg(p, 'Die Einladung ist abgelaufen.');
+    if (p.team) return this.msg(p, 'Verlasse zuerst dein aktuelles Team.');
+    let team = this.teamOf(from);
+    if (!team) {
+      team = { id: uid(), name: `Team ${from.name}`, leader: from.id, members: [from.id] };
+      this.teams.set(team.id, team);
+      from.team = team.id;
+      from.invites.clear();
+    }
+    if (team.members.length >= C.TEAM.maxSize) return this.msg(p, 'Das Team ist bereits voll.');
+    team.members.push(p.id);
+    p.team = team.id;
+    p.invites.clear();
+    this.teamMsg(team, `👥 ${p.name} ist ${team.name} beigetreten.`);
+  }
+
+  leaveTeam(p, silent) {
+    const team = this.teamOf(p);
+    p.team = 0;
+    if (!team) return;
+    team.members = team.members.filter((id) => id !== p.id);
+    if (!silent) this.msg(p, `Du hast ${team.name} verlassen.`);
+    if (team.members.length < 2) {
+      // Allein ist man kein Team mehr
+      for (const id of team.members) {
+        const m = this.players.get(id);
+        if (m) { m.team = 0; this.msg(m, `${team.name} wurde aufgelöst.`); }
+      }
+      this.teams.delete(team.id);
+      return;
+    }
+    if (team.leader === p.id) team.leader = team.members[0];
+    this.teamMsg(team, `👥 ${p.name} hat das Team verlassen.`);
+  }
+
+  kick(p, targetId) {
+    const team = this.teamOf(p);
+    const t = this.players.get(targetId);
+    if (!team || team.leader !== p.id || !t || t === p || t.team !== team.id) return;
+    this.msg(t, `Du wurdest aus ${team.name} entfernt.`);
+    this.leaveTeam(t, true);
+    if (this.teams.has(team.id)) this.teamMsg(team, `${t.name} wurde aus dem Team entfernt.`);
+  }
+
+  // ---------- Chat ----------
+
+  // Normale Nachrichten hören nur Spieler in der Nähe; "/t …" geht an alle Teammitglieder
+  chat(p, raw) {
+    let text = String(raw || '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+    if (!text || this.now - p.chatT < C.CHAT.cooldown) return;
+    let toTeam = false;
+    const m = /^\/(t|team)(\s+|$)/i.exec(text);
+    if (m) {
+      toTeam = true;
+      text = text.slice(m[0].length).trim();
+      if (!text) return;
+      if (!p.team) return this.msg(p, 'Du bist in keinem Team – Teamchat geht nicht.');
+    }
+    text = text.slice(0, C.CHAT.maxLength);
+    p.chatT = this.now;
+    const out = JSON.stringify({ t: 'c', id: p.id, name: p.name, text, team: toTeam ? 1 : 0 });
+    for (const o of this.players.values()) {
+      const hears = toTeam ? o.team === p.team : Math.hypot(o.x - p.x, o.y - p.y) <= C.CHAT.range;
+      if (hears) o.conn.send(out);
+    }
+  }
+
+  // ---------- Truhen ----------
+
+  // Truhen und das Unterhalts-Lager im Basis-Kern funktionieren gleich (Gebäude mit items)
+  canUseChest(p, s) {
+    return !!s && !!s.items && !p.dead && this.structures.has(s.id) && this.allied(p, s.owner) &&
+      Math.hypot(s.x - p.x, s.y - p.y) <= C.STRUCTURES[s.type].useRange + 40;
+  }
+
+  openChest(p, id) {
+    const s = this.structures.get(id);
+    if (!s || !s.items) return;
+    const what = s.type === 'core' ? 'Dieser Kern' : 'Diese Truhe';
+    if (!this.allied(p, s.owner)) return this.msg(p, `${what} gehört nicht dir oder deinem Team.`);
+    if (!this.canUseChest(p, s)) return this.msg(p, 'Geh näher heran.');
+    p.chest = s.id;
+  }
+
+  // Verschieben zwischen Inventar (c = 0) und offenem Behälter (c = 1)
+  chestMove(p, m) {
+    const s = this.structures.get(p.chest);
+    if (!this.canUseChest(p, s)) { p.chest = 0; return; }
+    const fc = m.fc ? 1 : 0, tc = m.quick ? 1 - fc : m.tc ? 1 : 0;
+    const box = (c) => (c ? s.items : p.inv);
+    const src = box(fc), dst = box(tc), from = m.from | 0, to = m.to | 0;
+    const a = src[from];
+    if (from < 0 || from >= src.length || !a) return;
+    // Ins Kern-Lager passen nur Unterhalts-Ressourcen (auch nicht per Tausch)
+    const fits = (c, item) => !(c && s.type === 'core') || C.UPKEEP.items.includes(item);
+    const swapIn = !m.quick && dst[to] && dst[to].item !== a.item ? dst[to].item : null;
+    if (!fits(tc, a.item) || (swapIn && !fits(fc, swapIn))) {
+      return this.msg(p, 'Ins Kern-Lager gehören nur Holz, Stein und Gold für den Unterhalt.');
+    }
+    if (m.quick) Inv.quickMove(src, from, dst);
+    else Inv.transfer(src, from, dst, to, m.n | 0);
+    // Verfallende Basis: frischer Vorrat wird sofort genutzt
+    if (s.type === 'core' && s.decaying && this.payUpkeep(s)) s.upkeepT = C.UPKEEP.interval;
+  }
+
+  // ---------- Unterhalt & Verfall ----------
+
+  // Kosten einer Zahlung für die Basis von owner: pro Gebäude cost[Level], der Kern coreMult-fach
+  upkeepCost(owner) {
+    const U = C.UPKEEP, cost = {};
+    for (const s of this.structures.values()) {
+      if (s.owner !== owner) continue;
+      const k = s.type === 'core' ? U.coreMult : 1;
+      for (const [item, n] of Object.entries(U.cost[s.level])) cost[item] = (cost[item] || 0) + n * k;
+    }
+    return cost;
+  }
+
+  // Zahlt aus dem Kern-Lager; Erfolg = Basis wird repariert, sonst verfällt sie bis zur nächsten Zahlung
+  payUpkeep(core) {
+    const cost = this.upkeepCost(core.owner);
+    core.upCost = cost;
+    const owner = this.players.get(core.owner);
+    if (!Inv.canAfford(core.items, cost)) {
+      if (!core.decaying && owner) this.msg(owner, '⚠ Kern-Lager leer – deine Basis verfällt! Lege Holz/Stein/Gold in den Kern [F].');
+      core.decaying = true;
+      return false;
+    }
+    Inv.pay(core.items, cost);
+    if (core.decaying && owner) this.msg(owner, 'Unterhalt bezahlt – der Verfall ist gestoppt.');
+    core.decaying = false;
+    for (const s of this.structures.values()) {
+      if (s.owner === core.owner && s.hp < s.maxHp) s.hp = Math.min(s.maxHp, s.hp + s.maxHp * C.UPKEEP.repair);
+    }
+    return true;
+  }
+
+  updateUpkeep(dt) {
+    const U = C.UPKEEP, cores = [];
+    for (const s of this.structures.values()) if (s.type === 'core') cores.push(s);
+    // Kosten für die Anzeige einmal pro Sekunde auffrischen
+    this.upCostT -= dt;
+    const refresh = this.upCostT <= 0;
+    if (refresh) this.upCostT = 1;
+    const decaying = new Set();
+    for (const core of cores) {
+      if (refresh) core.upCost = this.upkeepCost(core.owner);
+      core.upkeepT -= dt;
+      if (core.upkeepT <= 0) {
+        core.upkeepT += U.interval;
+        this.payUpkeep(core);
+      }
+      if (core.decaying) decaying.add(core.owner);
+    }
+    if (!decaying.size) return;
+    // Verfall: jedes Gebäude einer unversorgten Basis verliert laufend HP
+    for (const s of [...this.structures.values()]) {
+      if (!decaying.has(s.owner) || !this.structures.has(s.id)) continue;
+      s.hp -= s.maxHp * (U.decay / 60) * dt;
+      if (s.hp <= 0) this.destroyStructure(s);
+    }
+  }
+
+  // Für die Anzeige: Kosten, Sekunden bis zur nächsten Zahlung, wie viele Zahlungen der Vorrat deckt, Verfall
+  upkeepInfo(core) {
+    const cost = core.upCost || this.upkeepCost(core.owner);
+    let n = 999;
+    for (const [item, k] of Object.entries(cost)) if (k > 0) n = Math.min(n, Math.floor(Inv.count(core.items, item) / k));
+    return { c: cost, t: Math.max(0, Math.ceil(core.upkeepT)), n, d: core.decaying ? 1 : 0 };
   }
 
   placeAtSpawn(p) {
@@ -338,6 +746,15 @@ class Game {
       case 'skill': this.learnSkill(p, String(m.id)); break;
       case 'eat': this.eat(p, Number.isInteger(m.slot) ? m.slot : -1); break;
       case 'drop': this.dropFromSlot(p, m.slot | 0, m.n | 0, +m.x, +m.y); break;
+      case 'open': this.openChest(p, m.id | 0); break;
+      case 'close': p.chest = 0; break;
+      case 'cmv': this.chestMove(p, m); break;
+      case 'chat': this.chat(p, m.text); break;
+      case 'tinv': this.invite(p, m.id | 0); break;
+      case 'tacc': this.acceptInvite(p, m.id | 0); break;
+      case 'tdec': p.invites.delete(m.id | 0); break;
+      case 'tleave': this.leaveTeam(p); break;
+      case 'tkick': this.kick(p, m.id | 0); break;
     }
   }
 
@@ -443,6 +860,13 @@ class Game {
       id: uid(), kind: 's', type, owner: p.id, x, y, half, br: half * 1.42,
       level: 0, hp: L.hp, maxHp: L.hp, cd: type === 'mine' ? def.interval : 0, angle: 0,
     };
+    if (L.slots) s.items = new Array(L.slots).fill(null);
+    if (type === 'core') {
+      // Unterhalts-Lager startet mit etwas Vorrat; erste Zahlung nach einem vollen Intervall
+      for (const [item, n] of Object.entries(C.UPKEEP.startStock)) Inv.add(s.items, item, n);
+      s.upkeepT = C.UPKEEP.interval;
+      s.decaying = false;
+    }
     this.structures.set(s.id, s);
     this.statics.insert(s);
     if (type === 'core') {
@@ -503,6 +927,7 @@ class Game {
     s.level++;
     s.maxHp = next.hp;
     s.hp = next.hp;
+    if (s.items) while (s.items.length < next.slots) s.items.push(null);
     this.events.push([s.x, s.y, 'up']);
   }
 
@@ -602,6 +1027,12 @@ class Game {
     this.structures.delete(s.id);
     this.statics.remove(s);
     this.events.push([s.x, s.y, 'boom']);
+    // Truheninhalt fällt verstreut auf den Boden
+    for (const it of s.items || []) {
+      if (!it) continue;
+      const a = rand(0, TAU), d = rand(5, s.half + 15);
+      this.dropItem(s.x + Math.cos(a) * d, s.y + Math.sin(a) * d, it.item, it.n);
+    }
     const owner = this.players.get(s.owner);
     if (s.type === 'core') {
       for (const o of [...this.structures.values()]) if (o.owner === s.owner) this.destroyStructure(o);
@@ -699,7 +1130,15 @@ class Game {
     this.spawnCityZombies(dt);
     for (const z of [...this.zombies.values()]) this.updateZombie(z, dt);
     for (const s of [...this.structures.values()]) this.updateStructure(s, dt);
+    this.updateUpkeep(dt);
     this.updateProjectiles(dt);
+    if (this.db) {
+      this.saveT += dt;
+      if (this.saveT >= C.ACCOUNTS.autosave) {
+        this.saveT = 0;
+        try { this.saveAll(); } catch (e) { console.error('Autosave fehlgeschlagen:', e); }
+      }
+    }
     for (const it of this.items.values()) if (this.now - it.t > C.ITEMS.despawn) this.items.delete(it.id);
     // Nachwachsen (klappt es gerade nicht, wird es später erneut versucht)
     for (const pend of this.resPending) {
@@ -740,8 +1179,9 @@ class Game {
       p.x += (mx / l) * spd * dt;
       p.y += (my / l) * spd * dt;
     }
-    // Gebäude sind massiv; nur eigene Türen lassen den Besitzer durch
-    this.collideStatics(p, (s) => !(s.owner === p.id && C.STRUCTURES[s.type].passOwner));
+    // Gebäude sind massiv; nur eigene Türen (und die des Teams) lassen durch
+    this.collideStatics(p, (s) => !(C.STRUCTURES[s.type].passOwner && this.allied(p, s.owner)));
+    if (p.chest && !this.canUseChest(p, this.structures.get(p.chest))) p.chest = 0;
     p.x = clamp(p.x, p.r, C.WORLD_SIZE - p.r);
     p.y = clamp(p.y, p.r, C.WORLD_SIZE - p.r);
     this.pickupItems(p);
@@ -931,13 +1371,13 @@ class Game {
           this.depleteResource(o, got, p);
         }
       } else if (o.kind === 's' && circleHitsRect(hx, hy, hr * 0.6, o)) {
-        if (o.owner === p.id) this.repair(p, o);
+        if (this.allied(p, o.owner)) this.repair(p, o);
         else if (C.PVP) this.damageStructure(o, tool.damage * 1.5);
       }
     }
     if (C.PVP) {
       for (const o of this.players.values()) {
-        if (o !== p && !o.dead && Math.hypot(o.x - hx, o.y - hy) < hr + o.r) this.damagePlayer(o, tool.damage);
+        if (o !== p && !o.dead && !this.allied(p, o.id) && Math.hypot(o.x - hx, o.y - hy) < hr + o.r) this.damagePlayer(o, tool.damage);
       }
     }
   }
@@ -1158,7 +1598,7 @@ class Game {
       }
       if (C.PVP) {
         for (const p of this.players.values()) {
-          if (p.id === s.owner || p.dead) continue;
+          if (p.dead || this.allied(p, s.owner)) continue;
           const d = dist(s, p);
           if (d < bestD) { best = p; bestD = d; }
         }
@@ -1211,7 +1651,7 @@ class Game {
       }
       if (!hit && C.PVP) {
         for (const p of this.players.values()) {
-          if (p.id !== b.owner && !p.dead && Math.hypot(p.x - b.x, p.y - b.y) < p.r + 5) {
+          if (!p.dead && !this.allied(p, b.owner) && Math.hypot(p.x - b.x, p.y - b.y) < p.r + 5) {
             this.damagePlayer(p, b.dmg);
             hit = true;
             break;
@@ -1219,11 +1659,12 @@ class Game {
         }
       }
       if (!hit && b.fromPlayer) {
+        const shooter = this.players.get(b.owner);
         for (const o of this.statics.query(b.x, b.y, 10)) {
           if (o.kind === 'water') continue;
           const blocks = o.kind === 'res' ? Math.hypot(o.x - b.x, o.y - b.y) < o.cr
             : o.kind === 'ruin' ? circleHitsRect(b.x, b.y, 3, o)
-              : o.owner !== b.owner && !C.STRUCTURES[o.type].shootThrough && circleHitsRect(b.x, b.y, 3, o);
+              : o.owner !== b.owner && !this.allied(shooter, o.owner) && !C.STRUCTURES[o.type].shootThrough && circleHitsRect(b.x, b.y, 3, o);
           if (blocks) { hit = true; break; }
         }
       }
@@ -1273,7 +1714,7 @@ class Game {
       for (const o of this.items.values()) if (inView(o)) it.push([o.id, o.item, o.n, Math.round(o.x), Math.round(o.y)]);
       for (const o of this.players.values()) {
         if (o.dead || !inView(o)) continue;
-        pl.push([o.id, Math.round(o.x), Math.round(o.y), +o.angle.toFixed(2), Math.round(o.hp), o.maxHp, o.name, o.swings, this.equipLook(o), o.sprinting ? 1 : 0, this.isProtected(o) ? 1 : 0]);
+        pl.push([o.id, Math.round(o.x), Math.round(o.y), +o.angle.toFixed(2), Math.round(o.hp), o.maxHp, o.name, o.swings, this.equipLook(o), o.sprinting ? 1 : 0, this.isProtected(o) ? 1 : 0, o.team]);
       }
       for (const z of this.zombies.values()) {
         if (!inView(z)) continue;
@@ -1286,6 +1727,10 @@ class Game {
       for (const b of this.projectiles) if (inView(b)) pr.push([Math.round(b.x), Math.round(b.y), +Math.atan2(b.vy, b.vx).toFixed(2), b.look || 0]);
       for (const e of events) if (inView({ x: e[0], y: e[1] })) ev.push(e);
       const core = p.core;
+      const chest = p.chest && this.structures.get(p.chest);
+      if (p.chest && !this.canUseChest(p, chest)) p.chest = 0;
+      const team = this.teamOf(p);
+      for (const [from, at] of p.invites) if (this.now - at > C.TEAM.inviteTime || !this.players.has(from)) p.invites.delete(from);
       const msg = {
         t: 's', tm, pl, zs, ss, pr, ev, it,
         me: {
@@ -1294,19 +1739,35 @@ class Game {
           prot: Math.max(0, Math.ceil(p.protectUntil - this.time)), calm: Math.max(0, Math.ceil(p.calmUntil - this.time)),
           lvl: p.level, xp: Math.floor(p.xp), xpNext: this.xpNeeded(p.level), sp: p.sp, skills: p.skills, ammo: p.stats.ammo ? (this.ammoFor(p, p.stats.ammo) || C.AMMO[p.stats.ammo].types[0]).item : null, st: Math.round(p.stamina), ex: p.exhausted ? 1 : 0, dead: p.dead, rt: +p.respawnT.toFixed(1), score: p.score, kills: p.kills,
           core: core ? [core.id, core.x, core.y, core.level, lv(core).radius] : null,
-          count: p.count, max: core ? lv(core).maxStructures : 0, mines: p.counts.mine || 0,
+          count: p.count, max: core ? lv(core).maxStructures : 0, mines: p.counts.mine || 0, counts: p.counts,
           forge: p.forge ? [p.forge.id, p.forge.x, p.forge.y, p.forge.level] : null,
+          // Offene Truhe / offenes Kern-Lager: [id, Slots im Format des Inventars, Unterhalt (nur Kern)]
+          ch: p.chest ? [chest.id, chest.items.map((s) => (s ? [s.item, s.n] : 0)), chest.type === 'core' ? this.upkeepInfo(chest) : null] : null,
+          up: core ? this.upkeepInfo(core) : null,
+          // Team: Mitglieder als [id, Name, x, y, Leben-Anteil, tot, Kern-x, Kern-y] (Positionen für die Karten)
+          team: team ? {
+            id: team.id, name: team.name, leader: team.leader,
+            m: team.members.map((id) => this.players.get(id)).filter(Boolean).map((o) => [
+              o.id, o.name, Math.round(o.x), Math.round(o.y), +(o.hp / o.maxHp).toFixed(2), o.dead ? 1 : 0,
+              o.core ? o.core.x : 0, o.core ? o.core.y : 0,
+            ]),
+          } : null,
+          ti: [...p.invites.keys()].map((id) => [id, this.players.get(id).name]),
         },
       };
       if (lb) { msg.lb = lb; msg.on = this.players.size; }
       if (resUpdate) msg.ru = resUpdate;
       if (sendMinimap) {
-        // Gegner im weiten Umkreis als [x, y, feindlich, ...] + alle Spieler als [x, y, ...] (Koordinaten / 10)
+        // Gegner im weiten Umkreis als [x, y, feindlich, ...] + fremde Spieler im Radar-Umkreis als [x, y, ...]
+        // (Koordinaten / 10). Fremde tauchen nie auf der großen Karte auf, Teammitglieder kommen über me.team.
         const R = C.MINIMAP_RANGE, e = [], pp = [];
         for (const z of this.zombies.values()) {
           if (Math.abs(z.x - vx) < R && Math.abs(z.y - vy) < R) e.push(Math.round(z.x / 10), Math.round(z.y / 10), z.ai !== 'neutral' || z.target ? 1 : 0);
         }
-        for (const o of this.players.values()) if (o !== p && !o.dead) pp.push(Math.round(o.x / 10), Math.round(o.y / 10));
+        for (const o of this.players.values()) {
+          if (o === p || o.dead || this.allied(p, o.id) || Math.abs(o.x - vx) >= R || Math.abs(o.y - vy) >= R) continue;
+          pp.push(Math.round(o.x / 10), Math.round(o.y / 10));
+        }
         msg.mm = { e, p: pp };
       }
       p.conn.send(JSON.stringify(msg));

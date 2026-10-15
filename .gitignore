@@ -8,3 +8,6 @@ Thumbs.db
 .claude/
 .vscode/
 .idea/
+
+# Lokale Spielstand-Datenbank
+data/

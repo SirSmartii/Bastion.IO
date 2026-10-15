@@ -8,13 +8,19 @@
 </head>
 <body>
   <canvas id="game"></canvas>
+  <input id="chat" maxlength="120" autocomplete="off" placeholder="Nachricht an Spieler in der Nähe · /t … = Team">
 
   <div id="menu">
     <div class="card">
       <h1>Bastion<span>.io</span></h1>
       <p class="tagline">Sammeln · Bauen · Upgraden · Überleben</p>
-      <input id="name" maxlength="16" placeholder="Dein Name" autocomplete="off">
-      <button id="play">Spielen</button>
+      <input id="name" maxlength="16" placeholder="Name" autocomplete="username">
+      <input id="pass" type="password" maxlength="64" placeholder="Passwort" autocomplete="current-password">
+      <div class="auth-buttons">
+        <button id="play">Einloggen</button>
+        <button id="register" class="secondary">Registrieren</button>
+      </div>
+      <button id="guest" class="link">Als Gast spielen (wird nicht gespeichert)</button>
       <p id="menu-info"></p>
       <div class="help">
         <div><kbd>WASD</kbd> Bewegen</div>
@@ -29,7 +35,9 @@
         <div><kbd>X</kbd> Gebäude abreißen</div>
         <div><kbd>Tab</kbd> Inventar</div>
         <div><kbd>C</kbd> Charakter &amp; Ausrüstung</div>
-        <div><kbd>F</kbd> Schmiede (Äxte &amp; Kleidung)</div>
+        <div><kbd>F</kbd> Schmiede / Truhe öffnen</div>
+        <div><kbd>T</kbd> Team</div>
+        <div><kbd>Enter</kbd> Chat (Nähe, <kbd>/t</kbd> Team)</div>
         <div><kbd>Q</kbd> / <kbd>Rechtsklick</kbd> Zurück zur Axt</div>
         <div>Eigene Gebäude mit der Axt schlagen = reparieren</div>
       </div>

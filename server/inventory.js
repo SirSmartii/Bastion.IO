@@ -76,6 +76,37 @@ function move(inv, from, to) {
   }
 }
 
+// Zwischen zwei Behältern (Inventar ↔ Truhe) verschieben: n Stück (n <= 0 = ganzer Stapel)
+// in Slot `to`; gleiche Items werden gestapelt, ein ganzer Stapel tauscht mit einem anderen Item.
+function transfer(src, from, dst, to, n) {
+  if (src === dst) return move(src, from, to);
+  const a = src[from];
+  if (!a || to < 0 || to >= dst.length) return;
+  const k = n > 0 ? Math.min(n, a.n) : a.n;
+  const b = dst[to];
+  if (!b) {
+    dst[to] = { item: a.item, n: k };
+    a.n -= k;
+  } else if (b.item === a.item) {
+    const m = Math.min(k, stackOf(a.item) - b.n);
+    b.n += m;
+    a.n -= m;
+  } else if (k === a.n) {
+    src[from] = b;
+    dst[to] = a;
+    return;
+  }
+  if (!a.n) src[from] = null;
+}
+
+// Ganzen Stapel in einen anderen Behälter legen, wo Platz ist (Schnell-Verschieben)
+function quickMove(src, from, dst) {
+  const a = src[from];
+  if (!a) return;
+  a.n = add(dst, a.item, a.n);
+  if (!a.n) src[from] = null;
+}
+
 // Nimmt bis zu n Stück aus einem Slot (n <= 0 = ganzer Stapel)
 function take(inv, slot, n) {
   const s = inv[slot];
@@ -86,4 +117,4 @@ function take(inv, slot, n) {
   return { item: s.item, n: k };
 }
 
-module.exports = { create, count, totals, add, remove, canAfford, pay, move, take };
+module.exports = { create, count, totals, add, remove, canAfford, pay, move, transfer, quickMove, take, stackOf };

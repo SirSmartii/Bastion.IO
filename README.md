@@ -9,9 +9,17 @@ node server.js
 ```
 
 Dann im Browser `http://localhost:3000` öffnen (mehrere Tabs = mehrere Spieler).
-Keine npm-Pakete nötig (Node.js ≥ 18).
+Keine npm-Pakete nötig (Node.js ≥ 22.13, wegen des eingebauten `node:sqlite`).
 
 Zum Testen mit kurzem Tag: `DAY_LENGTH=10 node server.js` (PowerShell: `$env:DAY_LENGTH=10; node server.js`).
+
+## Accounts & Speichern
+
+- Im Startmenü **registrieren** oder **einloggen** (Name + Passwort). Wer als **Gast** spielt, wird nicht gespeichert, und seine Basis verschwindet beim Verlassen
+- Spielstände liegen in einer SQLite-Datenbank, standardmäßig `data/bastion.db` (Pfad per `DB_PATH=…`). Tabellen: `accounts` (Passwörter mit scrypt + Salt gehasht), `characters` (Inventar, Ausrüstung, Hotbar, Level, Skills, Position …), `bases` (alle Gebäude inkl. Truhen- und Kern-Lager), `meta` (Welt-Seed und Uhrzeit)
+- **Ausloggen** über den Knopf oben links. Gespeichert wird beim Ausloggen/Trennen, automatisch alle 60 s und beim Beenden des Servers (Ctrl+C, SIGTERM)
+- Beim nächsten Login steht der Charakter wieder an derselben Stelle. Die **Basis bleibt offline in der Welt** und unterliegt weiter Unterhalt und Verfall
+- Mit Datenbank bleibt auch die **Welt** über Neustarts gleich (Seed wird gespeichert), damit die Basen zum Gelände passen. Teams werden nicht gespeichert
 
 ## Deployment (Render)
 
@@ -19,7 +27,9 @@ Das Repo enthält eine `render.yaml`. Auf render.com **New → Blueprint** wähl
 Render setzt `PORT` automatisch, Client und WebSocket (`/ws`) laufen über denselben Service (HTTPS → `wss://`).
 
 Hinweise zum Free-Plan: Der Service schläft nach ~15 Min. ohne Besucher ein (erster Aufruf dauert dann ~1 Min.),
-und bei jedem Neustart/Deploy beginnt die Welt von vorn (der Spielstand liegt nur im Speicher).
+und das Dateisystem ist nicht dauerhaft: Die SQLite-Datei (Accounts, Charaktere, Basen) geht bei jedem Deploy
+oder Neustart verloren. Für dauerhafte Spielstände auf Render eine **Persistent Disk** (kostenpflichtig) anhängen
+und `DB_PATH` darauf zeigen lassen, z. B. `DB_PATH=/var/data/bastion.db`.
 
 ## Spielablauf
 
@@ -40,7 +50,7 @@ und bei jedem Neustart/Deploy beginnt die Welt von vorn (der Spielstand liegt nu
 - **Baumenü** (`B`): Gebäude nach Kategorien *Basis*, *Verteidigung* und *Wirtschaft*. Gewählt wird per Klick, platziert mit Linksklick (Ziehen baut Reihen). Der Bau-Button rechts neben der Hotbar wählt das zuletzt gebaute Gebäude
 - **Basis-Kern** platzieren → definiert Bauradius & Gebäude-Limit
 - Letzter Schlag auf eine Ressource gibt einen **Abbau-Bonus** (+10 Holz / +10 Stein / +5 Gold)
-- Gebäude sind für alle massiv, auch für dich. **Türen** lassen nur ihren Besitzer durch, **Fenster** blockieren jeden, lassen aber Pfeile durch
+- Gebäude sind für alle massiv, auch für dich. **Türen** lassen nur ihren Besitzer (und sein Team) durch, **Fenster** blockieren jeden, lassen aber Pfeile durch
 - Mauern, Türen, Fenster, Stacheln, Türme, Minen im Radius bauen; mit `E` upgraden (5 Stufen: Holz → Stein → Gold → Diamant → Rubin)
 - Gebäude können höchstens das Level des Kerns erreichen → Kern-Upgrades sind der Fortschritt
 - **Schmiede** (max. 1): Mit `F` daneben öffnen und Äxte & Kleidung herstellen (Reiter *Äxte* / *Kleidung*). Das Schmiede-Level schaltet Rezepte frei
@@ -50,9 +60,13 @@ und bei jedem Neustart/Deploy beginnt die Welt von vorn (der Spielstand liegt nu
 - Waffen und Kleidung sind **einzelne Items**: per Drag & Drop oder Rechtsklick an- und ablegen, aus dem Fenster ziehen = droppen. Ohne Waffe kämpft man mit der Faust
 - Rüstung reduziert Schaden um `Rüstung / (Rüstung + 50)`. Werte & Rezepte stehen in `EQUIPMENT` in `server/config.js`
 - Kern zerstört = ganze Basis weg
+- **Unterhalt & Verfall**: Der Basis-Kern hat ein **Lager** (`F` daneben, 10–20 Slots je nach Kern-Level), in das nur Holz, Stein und Gold passen. Alle 5 Minuten zahlt die Basis daraus pro Gebäude je nach Level (Holz-Stufe 1 🪵 … Rubin-Stufe 3 🪨 + 2 🪙, der Kern zählt 5-fach) und repariert dabei alle Gebäude um 10 % HP. Ist das Lager leer, **verfällt** die ganze Basis: Jedes Gebäude verliert 2 % seiner HP pro Minute, bis wieder Vorrat da ist. Ein neuer Kern startet mit 40 Holz. HUD und Kern-Lager zeigen, wie lange der Vorrat reicht (`UPKEEP` in `server/config.js`)
 - **Schatten**: Tagsüber werfen Bäume, Steine, Gebäude, Spieler und Tiere Sonnenschatten, die mit der Tageszeit wandern. Nachts verdecken Hindernisse das Licht von Spielern, Kernen, Türmen und Schmiede (Fenster lassen Licht durch)
-- **Minimap**: Radar um den Spieler. Rot = feindlich, Rosa = friedliches Tier, Gelb = Spieler
-- **Weltkarte** (`M`): ganze Welt mit Biomen, Seen, Wegen, Städten, deiner Basis und Planquadraten A–J / 1–10
+- **Truhen** (Baumenü → *Basis*, max. 6): Mit `F` davor öffnen, Items per Drag & Drop oder Rechtsklick (ganzer Stapel) ein- und auslagern. Upgrades geben mehr Platz (10 → 30 Slots). Wird eine Truhe zerstört, fällt ihr Inhalt auf den Boden
+- **Chat** (`Enter`): Nachrichten erreichen nur Spieler in der Nähe (`CHAT.range`) und erscheinen als Sprechblase. `/t Nachricht` schreibt ans ganze Team, egal wie weit weg
+- **Teams** (`T`): Spieler in der Nähe einladen, Einladungen annehmen/ablehnen, Team verlassen; der Anführer kann Mitglieder entfernen (max. `TEAM.maxSize`). Teammitglieder verletzen sich nicht, gehen durch die Türen des anderen, nutzen seine Truhen, reparieren seine Gebäude und sehen sich (samt Basen) grün auf Minimap und Weltkarte
+- **Minimap**: Radar um den Spieler. Rot = feindlich, Rosa = friedliches Tier, Gelb = fremder Spieler im Radar-Umkreis, Grün = Team
+- **Weltkarte** (`M`): ganze Welt mit Biomen, Seen, Wegen, Städten, deiner Basis und Planquadraten A–J / 1–10. Fremde Spieler sind dort nicht zu sehen, nur dein Team
 - Das Baugitter erscheint nur beim Platzieren von Gebäuden rund um die Maus
 
 ## Gegner
@@ -74,6 +88,7 @@ Jeder angegriffene Gegner verfolgt seinen Angreifer für `ANGER_TIME` Sekunden. 
 | `server/game.js` | Autoritative Spielsimulation (Bewegung, Kampf, Bauen, Gegner-KI) |
 | `server/world.js` | Weltgenerator: Biome (Value-Noise), Seen, Ruinenstädte, Feldwege |
 | `server/inventory.js` | Slot-Inventar (Stapeln, Verschieben, Bezahlen) |
+| `server/db.js` | SQLite-Persistenz: Accounts, Charaktere, Basen, Welt-Seed |
 | `server/ws.js` | Minimaler WebSocket-Server ohne Abhängigkeiten |
 | `server.js` | HTTP-Server + Game-Loop (30 Ticks/s, 15 Updates/s) |
 | `public/client.js` | Canvas-Rendering, Eingabe, HUD, Licht |

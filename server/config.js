@@ -4,7 +4,7 @@
 module.exports = {
   PORT: process.env.PORT || 3000,
   TICK_RATE: 60, // Simulationsschritte pro Sekunde
-  SEND_RATE: 30, // Zustands-Updates an Clients pro Sekunde
+  SEND_RATE: 60, // Zustands-Updates an Clients pro Sekunde
 
   WORLD_SIZE: 10000,
   TILE: 50,
@@ -288,14 +288,15 @@ module.exports = {
   // Nicht-Kern-Gebäude können maximal das Level des eigenen Kerns erreichen.
   STRUCTURES: {
     core: {
-      name: 'Basis-Kern', size: 2, category: 'base',
-      desc: 'Herz deiner Basis. Bestimmt Bauradius & Gebäude-Limit.',
+      name: 'Basis-Kern', size: 2, category: 'base', useRange: 190,
+      desc: 'Herz deiner Basis. Bestimmt Bauradius & Gebäude-Limit. Lager [F] für den Unterhalt.',
+      // slots = Plätze im Unterhalts-Lager (nur UPKEEP.items)
       levels: [
-        { hp: 1200, radius: 300, maxStructures: 20, cost: { wood: 40, stone: 20 } },
-        { hp: 2200, radius: 380, maxStructures: 35, cost: { wood: 200, stone: 150 } },
-        { hp: 3500, radius: 460, maxStructures: 50, cost: { wood: 400, stone: 350, gold: 80 } },
-        { hp: 5500, radius: 540, maxStructures: 70, cost: { stone: 700, gold: 250 } },
-        { hp: 8000, radius: 620, maxStructures: 90, cost: { stone: 1200, gold: 600 } },
+        { hp: 1200, radius: 300, maxStructures: 20, slots: 10, cost: { wood: 40, stone: 20 } },
+        { hp: 2200, radius: 380, maxStructures: 35, slots: 12, cost: { wood: 200, stone: 150 } },
+        { hp: 3500, radius: 460, maxStructures: 50, slots: 15, cost: { wood: 400, stone: 350, gold: 80 } },
+        { hp: 5500, radius: 540, maxStructures: 70, slots: 18, cost: { stone: 700, gold: 250 } },
+        { hp: 8000, radius: 620, maxStructures: 90, slots: 20, cost: { stone: 1200, gold: 600 } },
       ],
     },
     wall: {
@@ -375,6 +376,55 @@ module.exports = {
         { hp: 2000, cost: { stone: 300, gold: 120, scrap: 5 } },
       ],
     },
+    // Truhe: Lager für Items. slots = Plätze pro Level; nutzbar für Besitzer und Teammitglieder.
+    storage: {
+      name: 'Truhe', size: 1, limit: 6, useRange: 150, category: 'base',
+      desc: 'Lagert Items sicher in deiner Basis. Öffnen mit [F] (auch fürs Team).',
+      levels: [
+        { hp: 300, slots: 10, cost: { wood: 50, stone: 10 } },
+        { hp: 600, slots: 15, cost: { wood: 60, stone: 40 } },
+        { hp: 1000, slots: 20, cost: { stone: 100, gold: 20 } },
+        { hp: 1500, slots: 25, cost: { stone: 160, gold: 60 } },
+        { hp: 2200, slots: 30, cost: { stone: 250, gold: 120 } },
+      ],
+    },
+  },
+
+  // Unterhalt: Der Basis-Kern hat ein Lager. Alle interval Sekunden zahlt jede Basis pro Gebäude
+  // cost[Level] (der Kern zählt coreMult-fach) aus diesem Lager und repariert dabei repair × maxHp.
+  // Reicht der Vorrat nicht, verfällt die ganze Basis: jedes Gebäude verliert decay × maxHp pro Minute.
+  UPKEEP: {
+    interval: 300,
+    items: ['wood', 'stone', 'gold'], // nur diese Ressourcen passen ins Kern-Lager
+    cost: [{ wood: 1 }, { wood: 1, stone: 1 }, { stone: 2 }, { stone: 2, gold: 1 }, { stone: 3, gold: 2 }],
+    coreMult: 5,
+    repair: 0.1,
+    decay: 0.02, // Anteil der max. HP pro Minute → leeres Lager = Basis nach ~50 Min. zerfallen
+    startStock: { wood: 40 }, // Vorrat eines neuen Kerns
+  },
+
+  // Accounts & Speichern (SQLite-Datei, Pfad per DB_PATH änderbar)
+  ACCOUNTS: {
+    dbPath: process.env.DB_PATH || 'data/bastion.db',
+    autosave: 60, // Sekunden zwischen automatischen Speicherungen
+    nameMin: 3,
+    nameMax: 16,
+    passMin: 4,
+    passMax: 64,
+    loginCooldown: 1, // Sekunden zwischen Login-Versuchen pro Verbindung
+  },
+
+  // Teams: Mitglieder verletzen sich nicht, nutzen gegenseitig Türen & Truhen und sehen sich auf der Karte
+  TEAM: {
+    maxSize: 4,
+    inviteTime: 60, // Sekunden, die eine Einladung gültig ist
+  },
+
+  // Chat: normale Nachrichten erreichen nur Spieler in der Nähe, "/t …" geht ans ganze Team
+  CHAT: {
+    range: 1000,
+    maxLength: 120,
+    cooldown: 0.7, // Sekunden zwischen zwei Nachrichten
   },
 
   // Gegner & Tiere.

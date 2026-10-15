@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const C = require('./server/config');
 const Game = require('./server/game');
+const Db = require('./server/db');
 const { acceptWebSocket } = require('./server/ws');
 
 const PUBLIC = path.join(__dirname, 'public');
@@ -35,7 +36,24 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const game = new Game();
+// Datenbank für Accounts & Spielstände; schlägt sie fehl, läuft das Spiel nur mit Gästen weiter
+let db = null;
+try {
+  db = new Db(path.resolve(__dirname, C.ACCOUNTS.dbPath));
+  console.log('Datenbank:', path.resolve(__dirname, C.ACCOUNTS.dbPath));
+} catch (e) {
+  console.error('Datenbank nicht verfügbar – nur Gast-Modus:', e.message);
+}
+const game = new Game({ db });
+
+// Beim Beenden (Ctrl+C, Deploy/Neustart auf Render) alles speichern
+function shutdown() {
+  try { game.saveAll(); } catch (e) { console.error('Speichern beim Beenden fehlgeschlagen:', e); }
+  if (db) db.close();
+  process.exit(0);
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 server.on('upgrade', (req, socket) => {
   if (req.url !== '/ws') return socket.destroy();

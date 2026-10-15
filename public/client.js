@@ -12,7 +12,11 @@
   const menu = document.getElementById('menu');
   const nameInput = document.getElementById('name');
   const playBtn = document.getElementById('play');
+  const passInput = document.getElementById('pass');
+  const registerBtn = document.getElementById('register');
+  const guestBtn = document.getElementById('guest');
   const menuInfo = document.getElementById('menu-info');
+  const chatInput = document.getElementById('chat');
 
   // Hotbar: HOTBAR_SIZE frei belegbare Item-Slots (Tasten 1–6) + Bau-Button (B)
   const LEVEL_COLORS = ['#a8743f', '#9aa1a8', '#e8b93f', '#62d6e8', '#e0577a'];
@@ -23,10 +27,12 @@
   const ZCOL = { normal: '#6d9b48', runner: '#a3c652', brute: '#4b6f37' };
   const TAU = Math.PI * 2;
 
-  let ws = null, cfg = null, myId = 0, me = null;
+  let ws = null, cfg = null, myId = 0, me = null, account = null; // account = Name des eingeloggten Accounts (Gast: null)
   let tm = [1, 0, 0], lb = [], online = 0;
   const players = new Map(), zombies = new Map(), structs = new Map(), groundItems = new Map();
-  let invOpen = false, forgeOpen = false, buildOpen = false, charOpen = false, mapOpen = false, skillOpen = false;
+  let invOpen = false, forgeOpen = false, buildOpen = false, charOpen = false, mapOpen = false, skillOpen = false, teamOpen = false;
+  const chatLog = []; // { name, text, team, me, t }
+  const bubbles = new Map(); // Spieler-ID -> { text, t } (Sprechblase über dem Kopf)
   const mapCache = document.createElement('canvas'); // statischer Teil der Weltkarte
   let forgeTab = 'axes';
   let pendingTooltip = null;
@@ -68,28 +74,52 @@
 
   try { nameInput.value = localStorage.getItem('bastion-name') || ''; } catch (_) { /* ignore */ }
 
-  function start() {
+  // Login, Registrierung oder Gast: alles über dieselbe WebSocket-Verbindung
+  function start(t) {
     const name = nameInput.value.trim();
     try { localStorage.setItem('bastion-name', name); } catch (_) { /* ignore */ }
-    menuInfo.textContent = 'Verbinde…';
-    connect(name);
+    menuInfo.className = '';
+    if (t !== 'join' && (!name || !passInput.value)) { menuInfo.textContent = 'Name und Passwort eingeben.'; return; }
+    menuInfo.textContent = t === 'register' ? 'Account wird angelegt…' : 'Verbinde…';
+    const msg = t === 'join' ? { t, name } : { t, user: name, pass: passInput.value };
+    if (ws && ws.readyState === 1 && !me) send(msg); // Verbindung vom letzten Versuch weiternutzen
+    else connect(msg);
   }
-  playBtn.addEventListener('click', start);
-  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') start(); });
+  playBtn.addEventListener('click', () => start('login'));
+  registerBtn.addEventListener('click', () => start('register'));
+  guestBtn.addEventListener('click', () => start('join'));
+  for (const el of [nameInput, passInput]) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') start('login'); });
 
-  function connect(name) {
+  let loggingOut = false;
+  function logout() {
+    loggingOut = true;
+    if (ws) ws.close(); // der Server speichert beim Trennen
+  }
+
+  function connect(first) {
     if (ws) ws.close();
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws`);
-    ws.onopen = () => send({ t: 'join', name });
+    const sock = ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onopen = () => send(first);
     ws.onmessage = (e) => onMessage(JSON.parse(e.data));
     ws.onclose = () => {
+      if (sock !== ws) return; // alte Verbindung eines früheren Versuchs
       menu.classList.remove('hidden');
-      menuInfo.textContent = me ? 'Verbindung getrennt.' : 'Server nicht erreichbar.';
+      menuInfo.className = loggingOut && account ? 'ok' : '';
+      menuInfo.textContent = loggingOut ? (account ? 'Ausgeloggt – dein Spielstand ist gespeichert.' : 'Ausgeloggt.')
+        : me ? 'Verbindung getrennt.' : 'Server nicht erreichbar.';
+      loggingOut = false;
+      passInput.value = '';
+      ws = null;
       me = null;
-      invOpen = forgeOpen = buildOpen = charOpen = false;
+      invOpen = forgeOpen = buildOpen = charOpen = teamOpen = false;
       buildType = null;
       drag = null;
+      closeChat();
+      chatLog.length = 0;
+      bubbles.clear();
+      toasts.length = 0;
+      floats.length = 0;
       players.clear(); zombies.clear(); structs.clear(); groundItems.clear();
     };
   }
@@ -99,8 +129,12 @@
   // ---------- Netzwerk ----------
 
   function onMessage(m) {
-    if (m.t === 'init') {
+    if (m.t === 'auth') {
+      menuInfo.className = '';
+      menuInfo.textContent = m.err;
+    } else if (m.t === 'init') {
       myId = m.id;
+      account = m.acc;
       cfg = m.cfg;
       resources = m.res.map(makeResource);
       setupWorld(m.world);
@@ -112,6 +146,10 @@
       menuInfo.textContent = '';
     } else if (m.t === 'm') {
       toast(m.text);
+    } else if (m.t === 'c') {
+      chatLog.push({ name: m.name, text: m.text, team: m.team, me: m.id === myId, t: now });
+      if (chatLog.length > 40) chatLog.shift();
+      if (!m.team) bubbles.set(m.id, { text: m.text, t: now });
     } else if (m.t === 's') {
       applyState(m);
     }
@@ -206,13 +244,14 @@
     projectiles = m.pr;
     if (m.lb) { lb = m.lb; online = m.on; }
     if (m.ru) applyResourceUpdate(m.ru);
-    sync(players, m.pl, (a) => ({ id: a[0], x: a[1], y: a[2], angle: a[3], hp: a[4], maxHp: a[5], name: a[6], swings: a[7], look: a[8], sprint: a[9], prot: a[10] }));
+    sync(players, m.pl, (a) => ({ id: a[0], x: a[1], y: a[2], angle: a[3], hp: a[4], maxHp: a[5], name: a[6], swings: a[7], look: a[8], sprint: a[9], prot: a[10], team: a[11] }));
     sync(zombies, m.zs, (a) => ({ id: a[0], type: a[1], x: a[2], y: a[3], angle: a[4], hp: a[5], maxHp: a[6], swings: a[7], aggro: a[8] }));
     if (m.mm) minimap = m.mm;
     sync(structs, m.ss, (a) => ({ id: a[0], type: a[1], x: a[2], y: a[3], level: a[4], hp: a[5], maxHp: a[6], owner: a[7], angle: a[8] }));
     sync(groundItems, m.it, (a) => ({ id: a[0], item: a[1], n: a[2], x: a[3], y: a[4] }));
     if (firstState) { cam.x = me.x; cam.y = me.y; }
-    if (drag && !me.inv[drag.slot]) drag = null;
+    if (drag && drag.slot !== undefined && !dragStack()) drag = null;
+    if (!me.ch && drag && drag.c) drag = null;
 
     for (const e of m.ev) {
       const [x, y, k] = e;
@@ -278,13 +317,33 @@
   // ---------- Eingabe ----------
 
   addEventListener('keydown', (e) => {
-    if (!me || document.activeElement === nameInput) return;
+    if (!me || document.activeElement === nameInput || document.activeElement === passInput) return;
+    if (document.activeElement === chatInput) {
+      // Während des Tippens gehen keine Tasten ans Spiel
+      if (e.key === 'Enter') {
+        const t = chatInput.value.trim();
+        if (t) send({ t: 'chat', text: t });
+        closeChat();
+      } else if (e.key === 'Escape') closeChat();
+      return;
+    }
     if (e.code === 'Tab') e.preventDefault();
+    if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !e.repeat) {
+      e.preventDefault();
+      openChat();
+      return;
+    }
     keys.add(e.code);
     if (e.repeat) return;
     if (e.code === 'Tab') {
       invOpen = !invOpen;
-      forgeOpen = buildOpen = false;
+      forgeOpen = buildOpen = teamOpen = false;
+      if (!invOpen && me.ch) closeChest();
+    } else if (e.code === 'KeyT') {
+      teamOpen = !teamOpen;
+      if (teamOpen) { invOpen = forgeOpen = buildOpen = charOpen = mapOpen = skillOpen = false; drag = null; mouse.down = false; if (me.ch) closeChest(); }
+    } else if (e.code === 'Escape' && teamOpen) {
+      teamOpen = false;
     } else if (e.code === 'KeyC') {
       charOpen = !charOpen;
       forgeOpen = buildOpen = false;
@@ -293,23 +352,28 @@
       drag = null;
       mouse.down = false;
     } else if (e.code === 'KeyF') {
+      // Interagieren: das nähere von Schmiede und Truhe öffnen
+      const chest = nearestChest();
+      const fd = nearForge() ? Math.hypot(me.forge[1] - me.x, me.forge[2] - me.y) : Infinity;
       if (forgeOpen) forgeOpen = false;
-      else if (nearForge()) {
+      else if (me.ch) { closeChest(); invOpen = false; }
+      else if (chest && chest.d < fd) openChest(chest.s);
+      else if (fd < Infinity) {
         forgeOpen = true;
-        invOpen = buildOpen = charOpen = false;
+        invOpen = buildOpen = charOpen = teamOpen = false;
         drag = null;
         mouse.down = false;
-      } else toast(me.forge ? 'Geh näher an deine Schmiede.' : 'Du brauchst eine Schmiede (Baumenü [B]).');
+      } else toast(me.forge ? 'Geh näher an deine Schmiede oder eine Truhe.' : 'Keine Schmiede oder Truhe in der Nähe (Baumenü [B]).');
     } else if (e.code === 'KeyK') {
       skillOpen = !skillOpen;
-      if (skillOpen) { invOpen = forgeOpen = buildOpen = charOpen = mapOpen = false; drag = null; mouse.down = false; }
+      if (skillOpen) { invOpen = forgeOpen = buildOpen = charOpen = mapOpen = teamOpen = false; drag = null; mouse.down = false; }
     } else if (e.code === 'Escape' && skillOpen) {
       skillOpen = false;
     } else if (e.code === 'KeyR') {
       if (me.stats.ranged) send({ t: 'ammo' });
     } else if (e.code === 'KeyM') {
       mapOpen = !mapOpen;
-      if (mapOpen) { invOpen = forgeOpen = buildOpen = charOpen = false; drag = null; mouse.down = false; }
+      if (mapOpen) { invOpen = forgeOpen = buildOpen = charOpen = teamOpen = false; drag = null; mouse.down = false; }
     } else if (e.code === 'Escape' && mapOpen) {
       mapOpen = false;
     } else if (e.code === 'KeyB') {
@@ -319,6 +383,7 @@
     } else if (e.code === 'Escape' && (invOpen || forgeOpen || buildOpen || charOpen)) {
       invOpen = forgeOpen = buildOpen = charOpen = false;
       drag = null;
+      if (me.ch) closeChest();
     } else if (/^Digit[1-9]$/.test(e.code) && +e.code.slice(5) <= cfg.HOTBAR_SIZE) {
       const i = +e.code.slice(5) - 1;
       // Inventar offen und Maus über einem Item: Item auf diesen Slot legen, sonst Slot benutzen
@@ -352,6 +417,10 @@
       // Rechtsklick: Essen / Ausrüsten im Inventar, Ablegen im Charakterfenster
       const s = invSlotAt(e.clientX, e.clientY), eq = eqSlotAt(e.clientX, e.clientY);
       const item = s >= 0 && me.inv[s] && me.inv[s][0];
+      // Truhe offen: Rechtsklick schiebt den ganzen Stapel in den jeweils anderen Behälter
+      const cs = chestSlotAt(e.clientX, e.clientY);
+      if (cs >= 0) { if (me.ch[1][cs]) send({ t: 'cmv', fc: 1, from: cs, quick: 1 }); return; }
+      if (me.ch && item) { send({ t: 'cmv', fc: 0, from: s, quick: 1 }); return; }
       const hb = hotbarRects().findIndex((r) => inRect(e.clientX, e.clientY, r));
       if (hb >= 0 && hb < cfg.HOTBAR_SIZE) { send({ t: 'hb', i: hb, item: null }); return; } // Slot leeren
       if (item && cfg.ITEMS.food[item]) send({ t: 'eat', slot: s });
@@ -361,12 +430,20 @@
       return;
     }
     if (e.button !== 0) return;
+    if (inRect(e.clientX, e.clientY, logoutRect())) { logout(); return; }
     if (mapOpen) return; // Karte offen: Klicks gehen nicht ins Spiel
     const slot = hotbarRects().findIndex((r) => inRect(e.clientX, e.clientY, r));
     if (slot >= 0 && slot < cfg.HOTBAR_SIZE) { selected = 0; send({ t: 'use', i: slot }); return; }
     if (slot === cfg.HOTBAR_SIZE) {
       if (buildType && selected !== 1 && !buildOpen) selected = 1;
       else toggleBuildMenu();
+      return;
+    }
+    if (teamOpen) {
+      const L = teamLayout();
+      const b = L.buttons.find((x) => inRect(e.clientX, e.clientY, x.rect));
+      if (b) send(b.msg);
+      else if (!inRect(e.clientX, e.clientY, L.panel)) teamOpen = false;
       return;
     }
     if (skillOpen) {
@@ -398,8 +475,9 @@
     }
     if (invOpen || charOpen) {
       // Bei offenem Inventar/Charakterfenster steuert die Maus nur die Fenster
-      const s = invSlotAt(e.clientX, e.clientY), eq = eqSlotAt(e.clientX, e.clientY);
-      if (s >= 0 && me.inv[s]) drag = { slot: s, half: e.shiftKey };
+      const s = invSlotAt(e.clientX, e.clientY), eq = eqSlotAt(e.clientX, e.clientY), cs = chestSlotAt(e.clientX, e.clientY);
+      if (s >= 0 && me.inv[s]) drag = { slot: s, half: e.shiftKey, c: 0 };
+      else if (cs >= 0 && me.ch[1][cs]) drag = { slot: cs, half: e.shiftKey, c: 1 };
       else if (eq && me.eq[eq]) drag = { eq };
       return;
     }
@@ -417,8 +495,8 @@
     const d = drag;
     drag = null;
     if (!me) return;
-    const invT = invSlotAt(sx, sy), eqT = eqSlotAt(sx, sy);
-    const overPanel = (invOpen && inRect(sx, sy, invLayout().panel)) || (charOpen && inRect(sx, sy, charLayout().panel));
+    const invT = invSlotAt(sx, sy), eqT = eqSlotAt(sx, sy), chT = chestSlotAt(sx, sy);
+    const overPanel = overWindow(sx, sy);
     const wm = screenToWorld(sx, sy);
     if (d.eq) {
       if (!me.eq[d.eq]) return;
@@ -426,8 +504,17 @@
       else if (!overPanel) send({ t: 'unequip', eq: d.eq, drop: true, x: wm.x, y: wm.y });
       return;
     }
-    const stack = me.inv[d.slot];
+    const stack = dragStack(d);
     if (!stack) return;
+    const n = d.half ? Math.ceil(stack[1] / 2) : 0;
+    // Truhe beteiligt: Server verschiebt zwischen Inventar (0) und Truhe (1)
+    if (chT >= 0 || d.c) {
+      const tc = chT >= 0 ? 1 : invT >= 0 ? 0 : -1;
+      if (tc < 0) { if (d.c && !overPanel) toast('Erst ins Inventar ziehen, dann droppen.'); return; }
+      const to = tc ? chT : invT;
+      if (tc !== d.c || to !== d.slot) send({ t: 'cmv', fc: d.c, from: d.slot, tc, to, n });
+      return;
+    }
     // Auf einen Hotbar-Slot gezogen: Item dort ablegen (bleibt im Inventar)
     const hbT = hotbarRects().findIndex((r) => inRect(sx, sy, r));
     if (hbT >= 0 && hbT < cfg.HOTBAR_SIZE) { send({ t: 'hb', i: hbT, item: stack[0] }); return; }
@@ -439,8 +526,70 @@
       else toast('Das passt nicht in diesen Slot.');
     } else if (!overPanel) {
       // Aus dem Fenster gezogen: an der Mausposition in die Welt werfen
-      send({ t: 'drop', slot: d.slot, n: d.half ? Math.ceil(stack[1] / 2) : 0, x: wm.x, y: wm.y });
+      send({ t: 'drop', slot: d.slot, n, x: wm.x, y: wm.y });
     }
+  }
+
+  // Gezogener Stapel [item, n] (aus Inventar oder Truhe)
+  function dragStack(d = drag) {
+    if (!d || d.slot === undefined) return null;
+    const box = d.c ? me.ch && me.ch[1] : me.inv;
+    return (box && box[d.slot]) || null;
+  }
+
+  function overWindow(sx, sy) {
+    return (invOpen && inRect(sx, sy, invLayout().panel)) || (charOpen && inRect(sx, sy, charLayout().panel)) ||
+      (!!me.ch && invOpen && inRect(sx, sy, chestLayout().panel));
+  }
+
+  // ---------- Chat ----------
+
+  function openChat() {
+    keys.clear();
+    mouse.down = false;
+    chatInput.value = '';
+    chatInput.classList.add('open');
+    chatInput.classList.remove('team');
+    chatInput.focus();
+  }
+  function closeChat() {
+    chatInput.value = '';
+    chatInput.classList.remove('open');
+    chatInput.blur();
+  }
+  chatInput.addEventListener('input', () => chatInput.classList.toggle('team', /^\/t(eam)?(\s|$)/i.test(chatInput.value)));
+  chatInput.addEventListener('blur', () => chatInput.classList.remove('open'));
+
+  // ---------- Truhen ----------
+
+  // Nächste nutzbare Truhe (eigene oder vom Team) in Reichweite
+  function nearestChest() {
+    if (!me || me.dead) return null;
+    let best = null;
+    for (const s of structs.values()) {
+      if ((s.type !== 'storage' && s.type !== 'core') || !isAllied(s.owner)) continue;
+      const d = Math.hypot(s.x - me.x, s.y - me.y);
+      if (d <= cfg.STRUCTURES[s.type].useRange && (!best || d < best.d)) best = { s, d };
+    }
+    return best;
+  }
+  function openChest(s) {
+    send({ t: 'open', id: s.id });
+    invOpen = true;
+    forgeOpen = buildOpen = charOpen = skillOpen = teamOpen = mapOpen = false;
+    drag = null;
+    mouse.down = false;
+  }
+  let chestCloseT = -9;
+  function closeChest() {
+    chestCloseT = now;
+    send({ t: 'close' });
+    if (drag && drag.c) drag = null;
+  }
+
+  // Gehört ownerId zu mir oder meinem Team?
+  function isAllied(ownerId) {
+    return ownerId === myId || !!(me && me.team && me.team.m.some((m) => m[0] === ownerId));
   }
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('wheel', () => {
@@ -449,7 +598,7 @@
 
   function toggleBuildMenu() {
     buildOpen = !buildOpen;
-    invOpen = forgeOpen = charOpen = skillOpen = false;
+    invOpen = forgeOpen = charOpen = skillOpen = teamOpen = false;
     drag = null;
     mouse.down = false;
     if (buildOpen && buildType) buildCat = cfg.STRUCTURES[buildType].category;
@@ -518,7 +667,7 @@
       if (Math.hypot(g.x - me.core[1], g.y - me.core[2]) > coreRadius()) return 'radius';
       if (me.count >= me.max) return 'limit';
       if (type === 'forge' && me.forge) return 'limit';
-      if (type === 'mine' && me.mines >= def.limit) return 'limit';
+      if (def.limit && (me.counts[type] || 0) >= def.limit) return 'limit';
     }
     if (!canAfford(def.levels[0].cost)) return 'kosten';
     if (world.cities.some((c) => Math.hypot(c.x - g.x, c.y - g.y) < c.r + cfg.MAP.noBuildMargin + g.half)) return 'stadt';
@@ -543,7 +692,7 @@
     const cols = 5, rows = Math.ceil(cfg.INVENTORY.slots / cols), size = 60, gap = 8, pad = 18, head = 40, foot = 34;
     const w = pad * 2 + cols * size + (cols - 1) * gap;
     const h = head + pad + rows * size + (rows - 1) * gap + foot;
-    const x = Math.round(charOpen ? W / 2 - w - 8 : W / 2 - w / 2), y = Math.round(Math.max(80, H / 2 - h / 2 - 40));
+    const x = Math.round(charOpen || (me && me.ch) ? W / 2 - w - 8 : W / 2 - w / 2), y = Math.round(Math.max(80, H / 2 - h / 2 - 40));
     const slots = [];
     for (let i = 0; i < cfg.INVENTORY.slots; i++) {
       const c = i % cols, r = Math.floor(i / cols);
@@ -555,6 +704,23 @@
   function invSlotAt(sx, sy) {
     if (!invOpen || !cfg) return -1;
     return invLayout().slots.findIndex((r) => inRect(sx, sy, r));
+  }
+
+  // Truhenfenster rechts neben dem Inventar, gleiche Slot-Größe
+  function chestLayout() {
+    const info = me.ch[2] ? 78 : 0; // Unterhalts-Infos beim Kern-Lager
+    const n = me.ch[1].length, cols = 5, rows = Math.ceil(n / cols), size = 60, gap = 8, pad = 18, head = 40 + info, foot = 34;
+    const inv = invLayout().panel;
+    const w = pad * 2 + cols * size + (cols - 1) * gap, h = head + pad + rows * size + (rows - 1) * gap + foot;
+    const x = Math.round(W / 2 + 8), y = inv.y;
+    const slots = [];
+    for (let i = 0; i < n; i++) slots.push({ x: x + pad + (i % cols) * (size + gap), y: y + head + Math.floor(i / cols) * (size + gap), w: size, h: size });
+    return { panel: { x, y, w, h }, slots };
+  }
+
+  function chestSlotAt(sx, sy) {
+    if (!invOpen || !me || !me.ch) return -1;
+    return chestLayout().slots.findIndex((r) => inRect(sx, sy, r));
   }
 
   // Item-Symbol, zentriert auf (x, y) mit Größe s
@@ -1088,6 +1254,14 @@
         ctx.stroke();
         break;
       }
+      case 'storage': {
+        // Holztruhe mit Deckelkante und Beschlägen in Level-Farbe
+        rrect(-h + 5, -h + 9, h * 2 - 10, h * 2 - 16, 5, '#8a5a2b', '#3d2510', 3);
+        rrect(-h + 5, -h + 9, h * 2 - 10, h * 0.62, 5, '#a46c35', '#3d2510', 3);
+        for (const bx of [-h * 0.5, h * 0.5]) rrect(bx - 3, -h + 9, 6, h * 2 - 16, 1.5, c, d, 1.5);
+        rrect(-5, -h * 0.25, 10, 10, 2, c, '#1f1f1f', 2);
+        break;
+      }
       case 'core': {
         rrect(-h + 3, -h + 3, h * 2 - 6, h * 2 - 6, 14, d, '#1f1f1f', 4);
         rrect(-h + 14, -h + 14, h * 2 - 28, h * 2 - 28, 10, c);
@@ -1276,13 +1450,19 @@
     }
     ctx.restore();
 
+    // Teammitglieder: grüner Name mit Teamzeichen
+    const mate = !isMe && me.team && p.team === me.team.id;
+    const label = mate ? `👥 ${p.name}` : p.name;
     ctx.font = 'bold 16px Segoe UI, sans-serif';
     ctx.textAlign = 'center';
     ctx.lineWidth = 4;
     ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-    ctx.strokeText(p.name, p.dx, p.dy - r - 12);
-    ctx.fillStyle = isMe ? '#fff' : '#ffe9b0';
-    ctx.fillText(p.name, p.dx, p.dy - r - 12);
+    ctx.strokeText(label, p.dx, p.dy - r - 12);
+    ctx.fillStyle = isMe ? '#fff' : mate ? '#7fe0a0' : '#ffe9b0';
+    ctx.fillText(label, p.dx, p.dy - r - 12);
+    const bub = bubbles.get(p.id);
+    if (bub && now - bub.t < 6) drawBubble(bub.text, p.dx, p.dy - r - 34, Math.min(1, (6 - (now - bub.t)) * 2));
+    else if (bub) bubbles.delete(p.id);
     if (p.prot) {
       const pulse = 0.5 + Math.sin(now * 3 + p.id) * 0.5;
       const g = ctx.createRadialGradient(p.dx, p.dy, r * 0.8, p.dx, p.dy, r + 16);
@@ -1291,6 +1471,24 @@
       circle(p.dx, p.dy, r + 16, g, `rgba(170,230,255,${0.45 + pulse * 0.35})`, 2);
     }
     if (p.hp < p.maxHp) hpBar(p.dx, p.dy + r + 10, 52, p.hp / p.maxHp, '#7ed957');
+  }
+
+  // Sprechblase (Weltkoordinaten), unten mittig über (x, y)
+  function drawBubble(str, x, y, alpha) {
+    ctx.font = '14px Segoe UI, sans-serif';
+    const lines = wrapText(str, 220).slice(0, 4);
+    const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 18, h = lines.length * 17 + 10;
+    ctx.globalAlpha = alpha;
+    rrect(x - w / 2, y - h, w, h, 8, 'rgba(255,255,255,0.92)', 'rgba(0,0,0,0.35)', 1.5);
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y); ctx.lineTo(x, y + 7); ctx.lineTo(x + 6, y);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fill();
+    ctx.fillStyle = '#1b1b1b';
+    ctx.textAlign = 'center';
+    lines.forEach((l, i) => ctx.fillText(l, x, y - h + 19 + i * 17));
+    ctx.globalAlpha = 1;
   }
 
   // Ring um die eigene Figur: sichtbar, solange Ausdauer fehlt oder gesprintet wird
@@ -1352,6 +1550,66 @@
     ctx.fillText(String(it.n), it.x + 14, it.y + 18 + bob);
   }
 
+  // Slot-Raster zeichnen (Inventar oder Truhe); c = Behälter für die Drag-Hervorhebung
+  function drawSlots(slots, box, c, hoverSlot) {
+    slots.forEach((r, i) => {
+      const s = box[i];
+      const isDragSrc = drag && drag.slot === i && (drag.c || 0) === c;
+      const isHover = hoverSlot === i;
+      rrect(r.x, r.y, r.w, r.h, 8, isHover ? 'rgba(255,230,140,0.16)' : 'rgba(0,0,0,0.35)',
+        isHover && drag ? '#ffd76a' : 'rgba(255,255,255,0.1)', 2);
+      if (!s) return;
+      ctx.globalAlpha = isDragSrc ? 0.3 : 1;
+      drawItemIcon(s[0], r.x + r.w / 2, r.y + r.h / 2 - 3, 38);
+      if (!cfg.EQUIPMENT[s[0]]) {
+        ctx.font = 'bold 14px Segoe UI, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.strokeText(String(s[1]), r.x + r.w - 5, r.y + r.h - 6);
+        ctx.fillStyle = s[1] >= stackMax(s[0]) ? '#ffd76a' : '#fff';
+        ctx.fillText(String(s[1]), r.x + r.w - 5, r.y + r.h - 6);
+      }
+      ctx.globalAlpha = 1;
+    });
+  }
+
+  function drawChest() {
+    const { panel: P, slots } = chestLayout();
+    const box = me.ch[1], s = structs.get(me.ch[0]);
+    rrect(P.x, P.y, P.w, P.h, 14, 'rgba(30,22,12,0.95)', '#7a5a32', 3);
+    const owner = s && s.owner !== myId && me.team ? me.team.m.find((m) => m[0] === s.owner) : null;
+    const up = me.ch[2];
+    const title = up ? '🏰 Kern-Lager' : '📦 Truhe';
+    text(owner ? `${title} von ${owner[1]}` : title, P.x + 18, P.y + 27, { size: 18, bold: true, color: '#f2d27a' });
+    text(`${box.filter(Boolean).length}/${box.length} · [F] schließen`, P.x + P.w - 18, P.y + 27, { size: 13, color: '#c2ab88', align: 'right' });
+    if (up) drawUpkeepInfo(up, P.x + 18, P.y + 52, P.w - 36);
+    const hoverSlot = chestSlotAt(mouse.x, mouse.y);
+    drawSlots(slots, box, 1, hoverSlot);
+    text('Ziehen: einlagern / entnehmen · Rechtsklick: ganzer Stapel', P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#a8957a', align: 'center' });
+    if (!drag && hoverSlot >= 0 && box[hoverSlot]) {
+      const [item, n] = box[hoverSlot];
+      itemTooltip(item, [[cfg.EQUIPMENT[item] ? 'Rechtsklick: ins Inventar' : `× ${n} · Rechtsklick: ins Inventar`, '#cfd8c0']]);
+    }
+  }
+
+  // Unterhalt: Kosten, nächste Zahlung, Reichweite des Vorrats bzw. Verfallswarnung
+  function drawUpkeepInfo(up, x, y, w) {
+    const mins = cfg.UPKEEP.interval / 60;
+    rrect(x - 6, y - 16, w + 12, 66, 8, up.d ? 'rgba(140,30,20,0.45)' : 'rgba(0,0,0,0.3)', up.d ? '#e05555' : 'rgba(255,255,255,0.08)', 1.5);
+    text(`Unterhalt alle ${mins} min: ${fmtCost(up.c) || '–'}`, x, y, { size: 13, bold: true, color: '#f2e2c4' });
+    text(`Nächste Zahlung in ${fmtClock(up.t)} · repariert ${Math.round(cfg.UPKEEP.repair * 100)} % HP`, x, y + 20, { size: 12, color: '#c2ab88' });
+    if (up.d) text('⚠ Vorrat leer – die Basis verfällt! Holz/Stein/Gold einlagern.', x, y + 40, { size: 12, bold: true, color: '#ff8a7a' });
+    else text(`Vorrat reicht für ${up.n >= 999 ? '∞' : up.n} Zahlung(en) · ${supplyText(up)}`, x, y + 40, { size: 12, color: up.n < 2 ? '#ffb36a' : '#9fe870' });
+  }
+  const fmtClock = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  // Wie lange die Basis noch versorgt ist (bis zur ersten Zahlung, die nicht mehr klappt)
+  function supplyText(up) {
+    if (up.n >= 999) return 'kein Unterhalt nötig';
+    const sec = up.t + up.n * cfg.UPKEEP.interval;
+    return sec >= 3600 ? `~${(sec / 3600).toFixed(1).replace('.', ',')} h versorgt` : `~${Math.max(1, Math.round(sec / 60))} min versorgt`;
+  }
+
   function drawInventory() {
     const { panel: P, slots } = invLayout();
     rrect(P.x, P.y, P.w, P.h, 14, 'rgba(18,24,14,0.94)', '#4b5d38', 3);
@@ -1359,26 +1617,13 @@
     const used = me.inv.filter(Boolean).length;
     text(`${used}/${slots.length} Slots · [Tab] schließen`, P.x + P.w - 18, P.y + 27, { size: 13, color: '#a8b597', align: 'right' });
     const hoverSlot = invSlotAt(mouse.x, mouse.y);
-    slots.forEach((r, i) => {
-      const s = me.inv[i];
-      const isDragSrc = drag && drag.slot === i;
-      const isHover = hoverSlot === i;
-      rrect(r.x, r.y, r.w, r.h, 8, isHover ? 'rgba(255,230,140,0.16)' : 'rgba(0,0,0,0.35)',
-        isHover && drag ? '#ffd76a' : 'rgba(255,255,255,0.1)', 2);
-      if (!s) return;
-      ctx.globalAlpha = isDragSrc ? 0.3 : 1;
-      drawItemIcon(s[0], r.x + r.w / 2, r.y + r.h / 2 - 3, 38);
-      ctx.font = 'bold 14px Segoe UI, sans-serif';
-      ctx.textAlign = 'right';
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-      if (!cfg.EQUIPMENT[s[0]]) ctx.strokeText(String(s[1]), r.x + r.w - 5, r.y + r.h - 6);
-      if (!cfg.EQUIPMENT[s[0]]) {
-        ctx.fillStyle = s[1] >= stackMax(s[0]) ? '#ffd76a' : '#fff';
-        ctx.fillText(String(s[1]), r.x + r.w - 5, r.y + r.h - 6);
-      }
-      ctx.globalAlpha = 1;
-    });
+    if (me.ch) {
+      drawSlots(slots, me.inv, 0, hoverSlot);
+      text(me.ch[2] ? 'Rechtsklick: Stapel ins Kern-Lager' : 'Rechtsklick: Stapel in die Truhe', P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#8f9c80', align: 'center' });
+      if (!drag && hoverSlot >= 0 && me.inv[hoverSlot]) itemTooltip(me.inv[hoverSlot][0], [[`× ${me.inv[hoverSlot][1]} · Rechtsklick: ${me.ch[2] ? 'ins Kern-Lager' : 'in die Truhe'}`, '#cfd8c0']]);
+      return;
+    }
+    drawSlots(slots, me.inv, 0, hoverSlot);
     text('Ziehen: sortieren / droppen · Shift: Hälfte · Rechtsklick: nutzen',
       P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#8f9c80', align: 'center' });
 
@@ -1603,7 +1848,7 @@
       const r = slots[sl.id], item = me.eq[sl.id];
       const dragging = drag && drag.eq === sl.id;
       // Beim Ziehen passende Slots hervorheben
-      const dragItem = drag && drag.slot !== undefined && me.inv[drag.slot] && me.inv[drag.slot][0];
+      const dragItem = dragStack() && dragStack()[0];
       const fits = dragItem && cfg.EQUIPMENT[dragItem] && cfg.EQUIPMENT[dragItem].slot === sl.id;
       rrect(r.x, r.y, r.w, r.h, 8, hoverEq === sl.id ? 'rgba(255,230,140,0.16)' : 'rgba(0,0,0,0.4)',
         fits ? '#9fe870' : 'rgba(255,255,255,0.14)', fits ? 3 : 2);
@@ -1704,13 +1949,12 @@
   }
 
   function drawDragged() {
-    const s = drag.eq ? [me.eq[drag.eq], 1] : me.inv[drag.slot];
+    const s = drag.eq ? [me.eq[drag.eq], 1] : dragStack();
     if (!s || !s[0]) return;
     const n = drag.half ? Math.ceil(s[1] / 2) : s[1];
     drawItemIcon(s[0], mouse.x, mouse.y, 42);
     if (!cfg.EQUIPMENT[s[0]]) text(String(n), mouse.x + 18, mouse.y + 22, { size: 14, bold: true });
-    const overPanel = (invOpen && inRect(mouse.x, mouse.y, invLayout().panel)) || (charOpen && inRect(mouse.x, mouse.y, charLayout().panel));
-    if (!overPanel) {
+    if (!overWindow(mouse.x, mouse.y) && !drag.c) {
       text('Loslassen zum Droppen', mouse.x, mouse.y - 30, { size: 13, bold: true, align: 'center', color: '#ffd76a' });
     }
   }
@@ -1742,7 +1986,7 @@
   // Ressourcen relativ zum Radius, Gebäude in Welteinheiten.
   const RES_HEIGHT = { tree: 1.5, rock: 0.55, gold: 0.5, crate: 1 };
   const RUIN_HEIGHT = 40;
-  const STRUCT_HEIGHT = { core: 60, wall: 42, door: 30, window: 42, spike: 10, turret: 55, mine: 28, forge: 38 };
+  const STRUCT_HEIGHT = { core: 60, wall: 42, door: 30, window: 42, spike: 10, turret: 55, mine: 28, forge: 38, storage: 26 };
 
   // Sonnenstand aus der Tageszeit: morgens Schatten lang nach Westen,
   // mittags kurz nach Norden, abends lang nach Osten. Nachts keine Sonne.
@@ -1989,11 +2233,15 @@
       rrect(mx(me.core[1]) - 5, my(me.core[2]) - 5, 10, 10, 2, '#86e6ff', '#0b3a4a', 2);
     }
     if (me.forge) rrect(mx(me.forge[1]) - 3.5, my(me.forge[2]) - 3.5, 7, 7, 1.5, '#ff9a3c', '#3a1a00', 1.5);
-    // Gegner aus dem Radar-Umkreis, andere Spieler
+    // Gegner aus dem Radar-Umkreis; fremde Spieler bleiben verborgen, nur das eigene Team ist sichtbar
     const e = minimap.e;
     for (let i = 0; i < e.length; i += 3) circle(mx(e[i] * 10), my(e[i + 1] * 10), e[i + 2] ? 2.5 : 2, e[i + 2] ? '#ff3b3b' : 'rgba(240,170,165,0.8)');
-    const pp = minimap.p;
-    for (let i = 0; i < pp.length; i += 2) circle(mx(pp[i] * 10), my(pp[i + 1] * 10), 4, '#ffe08a', '#000', 1.5);
+    for (const [id, name, tx, ty, , dead, cx, cy] of teammates()) {
+      if (cx || cy) rrect(mx(cx) - 4.5, my(cy) - 4.5, 9, 9, 2, '#7fe0a0', '#0b3a1a', 2);
+      if (dead) continue;
+      circle(mx(tx), my(ty), 5, '#7fe0a0', '#06200e', 2);
+      text(name, mx(tx), my(ty) - 9, { size: 11, bold: true, align: 'center', color: '#c8ffd8' });
+    }
     // Eigene Position als Pfeil in Blickrichtung, mit pulsierendem Ring
     const sx = mx(me.x), sy = my(me.y);
     ctx.beginPath();
@@ -2160,7 +2408,7 @@
     if (type === 'core') return me.core ? 'Bereits gebaut' : null;
     if (!me.core) return 'Basis-Kern nötig';
     if (type === 'forge' && me.forge) return 'Limit erreicht (1/1)';
-    if (type === 'mine' && me.mines >= def.limit) return `Limit erreicht (${def.limit}/${def.limit})`;
+    if (def.limit && (me.counts[type] || 0) >= def.limit) return `Limit erreicht (${def.limit}/${def.limit})`;
     if (me.count >= me.max) return 'Gebäude-Limit – Kern upgraden';
     return null;
   }
@@ -2236,6 +2484,8 @@
       { size: 12, color: '#8f9c80', align: 'center' });
   }
 
+  const logoutRect = () => ({ x: 14, y: 14, w: 112, h: 32 });
+
   function drawHud() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -2247,7 +2497,9 @@
     rrect(W / 2 - 110, 46, 220 * prog, 8, 4, night ? '#6f7fe0' : '#f5c84a');
     let toastY = 96;
     const mmss = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
-    const badge = me.prot > 0 ? [`🛡 Spawnschutz – noch ${mmss(me.prot)}`, 'rgba(40,90,130,0.85)', '#cfeeff']
+    const badge = me.up && me.up.d && Math.floor(now * 2) % 2 === 0 ? ['⚠ Deine Basis verfällt – Holz/Stein/Gold in den Basis-Kern legen [F]', 'rgba(140,30,20,0.9)', '#ffd9d0']
+      : me.up && me.up.d ? ['⚠ Deine Basis verfällt – Holz/Stein/Gold in den Basis-Kern legen [F]', 'rgba(110,25,18,0.9)', '#ffd9d0']
+      : me.prot > 0 ? [`🛡 Spawnschutz – noch ${mmss(me.prot)}`, 'rgba(40,90,130,0.85)', '#cfeeff']
       : me.calm > 0 ? [`🌙 Ruhige erste Nacht – keine Horde (${mmss(me.calm)})`, 'rgba(50,50,100,0.85)', '#d6d9ff'] : null;
     if (badge) {
       ctx.font = 'bold 13px Segoe UI, sans-serif';
@@ -2263,6 +2515,12 @@
       text(t.text, W / 2, toastY + i * 26, { size: 17, bold: true, align: 'center', color: '#fff' });
       ctx.globalAlpha = 1;
     });
+
+    // Ausloggen (oben links)
+    const lo = logoutRect(), loHover = inRect(mouse.x, mouse.y, lo);
+    rrect(lo.x, lo.y, lo.w, lo.h, 8, loHover ? 'rgba(160,60,40,0.85)' : 'rgba(10,14,8,0.62)', 'rgba(255,255,255,0.12)', 1.5);
+    text('⏻ Ausloggen', lo.x + lo.w / 2, lo.y + 21, { size: 13, bold: true, align: 'center', color: '#fff' });
+    text(account ? `👤 ${account} · wird gespeichert` : '👤 Gast · wird nicht gespeichert', lo.x + lo.w + 10, lo.y + 21, { size: 12, color: account ? '#9fe870' : '#c9a69e' });
 
     // Bestenliste
     const lbW = 220, lbH = 40 + lb.length * 22;
@@ -2289,13 +2547,19 @@
     text(`⚔ ${st.damage}  🛡 ${st.armor}  👟 ${st.speed}  ·  [C] Charakter`, 28, H - 86, { size: 13 });
     const forgeHint = me.forge ? ['⚒️ Äxte & Kleidung: an der Schmiede [F]', '#cfd8c0'] : ['⚒️ Baue eine Schmiede [B] für Äxte & Kleidung', '#c9a69e'];
     text(forgeHint[0], 28, H - 66, { size: 13, color: forgeHint[1] });
-    if (me.core) text(`🏰 Basis Lv ${me.core[3] + 1} · Gebäude ${me.count}/${me.max} · Minen ${me.mines}/${cfg.STRUCTURES.mine.limit}`, 28, H - 46, { size: 13, color: '#cfd8c0' });
+    if (me.core) {
+      const supply = me.up && me.up.d ? ['⚠ Verfall!', '#ff8a7a'] : me.up ? [`⏳ ${supplyText(me.up)}`, me.up.n < 2 ? '#ffb36a' : '#cfd8c0'] : ['', ''];
+      text(`🏰 Basis Lv ${me.core[3] + 1} · Gebäude ${me.count}/${me.max} · `, 28, H - 46, { size: 13, color: '#cfd8c0' });
+      ctx.font = '13px Segoe UI, sans-serif';
+      text(supply[0], 28 + ctx.measureText(`🏰 Basis Lv ${me.core[3] + 1} · Gebäude ${me.count}/${me.max} · `).width, H - 46, { size: 13, bold: true, color: supply[1] });
+    }
     else text('🏰 Noch keine Basis', 28, H - 46, { size: 13, color: '#ff9a7a' });
     text(`🏆 ${me.score}   💀 ${me.kills}`, 28, H - 26, { size: 13, color: '#cfd8c0' });
     text('[Tab] Inventar', 330, H - 26, { size: 12, color: '#a8b597', align: 'right' });
 
     drawHotbar();
     drawMinimap();
+    drawChatLog();
 
     if (!me.core && !me.dead) {
       const hint = selected === 1 && buildType === 'core' ? 'Klicke auf einen freien Platz, um deine Basis zu gründen' : 'Öffne das Baumenü [B] und platziere deinen Basis-Kern';
@@ -2303,6 +2567,7 @@
     }
     if (hovered) drawTooltip(hovered);
     if (invOpen && !me.dead) drawInventory();
+    if (invOpen && me.ch && !me.dead) drawChest();
     if (charOpen && !me.dead) drawCharacter();
     if (drag && (invOpen || charOpen) && !me.dead) drawDragged();
     if (pendingTooltip) {
@@ -2312,6 +2577,7 @@
     if (forgeOpen && !me.dead) drawForge();
     if (buildOpen && !me.dead) drawBuildMenu();
     if (skillOpen && !me.dead) drawSkills();
+    if (teamOpen) drawTeam();
     if (mapOpen) drawWorldMap();
 
     if (me.dead) {
@@ -2320,6 +2586,147 @@
       text('Du wurdest überrannt!', W / 2, H / 2 - 10, { size: 40, bold: true, align: 'center', color: '#ff6b6b' });
       text(`Respawn in ${Math.ceil(me.rt)}s ${me.core ? 'an deiner Basis' : ''}`, W / 2, H / 2 + 28, { size: 18, align: 'center' });
     }
+  }
+
+  // ---------- Team ----------
+
+  // Zeilen und Buttons des Team-Fensters (gemeinsam für Zeichnen & Klicks)
+  function teamLayout() {
+    const w = 440, pad = 18, rowH = 36, x = Math.round(W / 2 - w / 2);
+    const team = me.team, rows = [], buttons = [];
+    let y = 52;
+    const section = (title) => { rows.push({ kind: 'title', y, text: title }); y += 26; };
+    const btn = (label, msg, color, ry, bx) => {
+      ctx.font = 'bold 12px Segoe UI, sans-serif';
+      const bw = ctx.measureText(label).width + 20;
+      const rect = { x: bx - bw, y: ry + 6, w: bw, h: rowH - 12 };
+      buttons.push({ rect, label, msg, color });
+      return rect.x - 6;
+    };
+    const right = x + w - pad;
+    if (team) {
+      section(`${team.name} · ${team.m.length}/${cfg.TEAM.maxSize}`);
+      for (const m of team.m) {
+        rows.push({ kind: 'member', y, m, leader: m[0] === team.leader });
+        if (team.leader === myId && m[0] !== myId) btn('Entfernen', { t: 'tkick', id: m[0] }, '#b4553f', y, right);
+        y += rowH;
+      }
+      y += 4;
+      btn('Team verlassen', { t: 'tleave' }, '#b4553f', y, right);
+      rows.push({ kind: 'hint', y: y + 23, text: 'Teamchat: [Enter] → „/t Nachricht“' });
+      y += rowH + 6;
+    } else {
+      rows.push({ kind: 'hint', y: y + 4, text: 'Du bist in keinem Team. Lade Spieler in deiner Nähe ein!' });
+      y += 30;
+    }
+    if (me.ti.length) {
+      section('Einladungen');
+      for (const [id, name] of me.ti) {
+        rows.push({ kind: 'invite', y, name });
+        const bx = btn('Ablehnen', { t: 'tdec', id }, '#6b6b60', y, right);
+        btn('Annehmen', { t: 'tacc', id }, '#7fae45', y, bx);
+        y += rowH;
+      }
+    }
+    const teamIds = new Set(team ? team.m.map((m) => m[0]) : []);
+    const near = [...players.values()].filter((p) => p.id !== myId && !teamIds.has(p.id))
+      .map((p) => ({ p, d: Math.hypot(p.x - me.x, p.y - me.y) })).sort((a, b) => a.d - b.d).slice(0, 6);
+    section('Spieler in der Nähe');
+    const full = team && team.m.length >= cfg.TEAM.maxSize;
+    if (!near.length) { rows.push({ kind: 'hint', y: y + 4, text: 'Niemand in Sichtweite.' }); y += 30; }
+    for (const { p, d } of near) {
+      rows.push({ kind: 'near', y, p, d });
+      if (!p.team && !full) btn('Einladen', { t: 'tinv', id: p.id }, '#7fae45', y, right);
+      y += rowH;
+    }
+    const h = y + 40;
+    const top = Math.round(Math.max(70, H / 2 - h / 2 - 30));
+    for (const r of rows) r.y += top;
+    for (const b of buttons) b.rect.y += top;
+    return { panel: { x, y: top, w, h }, rows, buttons, pad, rowH };
+  }
+
+  function drawTeam() {
+    const { panel: P, rows, buttons, pad, rowH } = teamLayout();
+    rrect(P.x, P.y, P.w, P.h, 14, 'rgba(18,24,14,0.95)', '#4b5d38', 3);
+    text('👥 Team', P.x + pad, P.y + 29, { size: 18, bold: true, color: '#f2d27a' });
+    text('[T] schließen', P.x + P.w - pad, P.y + 29, { size: 12, color: '#a8b597', align: 'right' });
+    const L = P.x + pad;
+    for (const r of rows) {
+      if (r.kind === 'title') text(r.text, L, r.y + 16, { size: 14, bold: true, color: '#e9eedd' });
+      else if (r.kind === 'hint') text(r.text, L, r.y + 14, { size: 13, color: '#a8b597' });
+      else {
+        rrect(L - 6, r.y + 2, P.w - pad * 2 + 12, rowH - 4, 7, 'rgba(0,0,0,0.28)');
+        if (r.kind === 'member') {
+          const [id, name, mx, my, hp, dead] = r.m;
+          text(`${r.leader ? '👑 ' : ''}${name}${id === myId ? ' (du)' : ''}`, L + 4, r.y + 23, { size: 14, bold: true, color: '#7fe0a0' });
+          rrect(L + 170, r.y + 14, 80, 8, 4, 'rgba(0,0,0,0.5)');
+          if (!dead) rrect(L + 170, r.y + 14, 80 * hp, 8, 4, hp > 0.35 ? '#7ed957' : '#e05555');
+          const info = dead ? '💀 tot' : id === myId ? '' : `${Math.round(Math.hypot(mx - me.x, my - me.y) / 10)} m`;
+          text(info, L + 262, r.y + 23, { size: 12, color: '#cfd8c0' });
+        } else if (r.kind === 'invite') {
+          text(`${r.name} lädt dich ein`, L + 4, r.y + 23, { size: 14, color: '#fff' });
+        } else if (r.kind === 'near') {
+          text(r.p.name, L + 4, r.y + 23, { size: 14, color: '#ffe9b0' });
+          text(r.p.team ? 'in einem Team' : `${Math.round(r.d / 10)} m`, L + 170, r.y + 23, { size: 12, color: '#a8b597' });
+        }
+      }
+    }
+    for (const b of buttons) {
+      const hover = inRect(mouse.x, mouse.y, b.rect);
+      rrect(b.rect.x, b.rect.y, b.rect.w, b.rect.h, 6, b.color, hover ? '#fff' : 'rgba(0,0,0,0.4)', hover ? 2 : 1.5);
+      text(b.label, b.rect.x + b.rect.w / 2, b.rect.y + 16, { size: 12, bold: true, align: 'center', color: '#fff' });
+    }
+    text('Team: kein Eigenbeschuss · Türen & Truhen teilen · auf der Karte sichtbar', P.x + P.w / 2, P.y + P.h - 14,
+      { size: 11, color: '#8f9c80', align: 'center' });
+  }
+
+  // ---------- Chat-Verlauf ----------
+
+  function drawChatLog() {
+    const typing = document.activeElement === chatInput;
+    const x = 14, w = 330, lineH = 19, bottom = H - 172 - (typing ? 40 : 0);
+    const shown = chatLog.filter((c) => typing || now - c.t < 12).slice(typing ? -10 : -6);
+    if (!shown.length) return;
+    ctx.font = '13px Segoe UI, sans-serif';
+    // Lange Nachrichten umbrechen, von unten nach oben stapeln
+    const lines = [];
+    for (const c of shown) {
+      const prefix = `${c.team ? '[Team] ' : ''}${c.name}: `;
+      const wrapped = wrapText(prefix + c.text, w - 20);
+      const alpha = typing ? 1 : Math.min(1, (12 - (now - c.t)) / 2);
+      wrapped.forEach((l, i) => lines.push({ l, c, first: i === 0, alpha, prefix }));
+    }
+    const h = lines.length * lineH + 12;
+    if (typing) panel(x, bottom - h, w, h);
+    lines.forEach((ln, i) => {
+      const y = bottom - h + 20 + i * lineH;
+      ctx.globalAlpha = Math.max(0, ln.alpha);
+      const col = ln.c.team ? '#7fd6ff' : '#fff';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+      ctx.textAlign = 'left';
+      let tx = x + 10, rest = ln.l;
+      if (ln.first) {
+        // Name fett und farbig, danach die Nachricht
+        ctx.font = 'bold 13px Segoe UI, sans-serif';
+        ctx.fillStyle = ln.c.me ? '#9fe870' : ln.c.team ? '#6fd6ff' : '#ffe08a';
+        ctx.strokeText(ln.prefix, tx, y);
+        ctx.fillText(ln.prefix, tx, y);
+        tx += ctx.measureText(ln.prefix).width;
+        rest = ln.l.slice(ln.prefix.length);
+      }
+      ctx.font = '13px Segoe UI, sans-serif';
+      ctx.strokeText(rest, tx, y);
+      ctx.fillStyle = col;
+      ctx.fillText(rest, tx, y);
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // Andere Teammitglieder [id, Name, x, y, Leben, tot, Kern-x, Kern-y]
+  function teammates() {
+    return me.team ? me.team.m.filter((m) => m[0] !== myId) : [];
   }
 
   function drawMinimap() {
@@ -2381,13 +2788,16 @@
     }
     const pp = minimap.p;
     for (let i = 0; i < pp.length; i += 2) circle(mx(pp[i] * 10), my(pp[i + 1] * 10), 3, '#ffe08a', '#000', 1);
+    for (const [, , tx, ty, , dead] of teammates()) if (!dead) circle(mx(tx), my(ty), 3.5, '#7fe0a0', '#000', 1);
     circle(x + size / 2, y + size / 2, 4, '#fff', '#000', 1.5);
     ctx.restore();
-    text('● Feind  ● Spieler', x + 8, y + size - 8, { size: 10, color: 'rgba(255,255,255,0.55)' });
-    ctx.fillStyle = '#ff3b3b';
-    ctx.fillText('●', x + 8, y + size - 8);
-    ctx.fillStyle = '#ffe08a';
-    ctx.fillText('●', x + 8 + ctx.measureText('● Feind  ').width, y + size - 8);
+    const legend = me.team ? '● Feind ● Spieler ● Team' : '● Feind  ● Spieler';
+    text(legend, x + 8, y + size - 8, { size: 10, color: 'rgba(255,255,255,0.55)' });
+    const dots = me.team ? [['#ff3b3b', ''], ['#ffe08a', '● Feind '], ['#7fe0a0', '● Feind ● Spieler ']] : [['#ff3b3b', ''], ['#ffe08a', '● Feind  ']];
+    for (const [col, before] of dots) {
+      ctx.fillStyle = col;
+      ctx.fillText('●', x + 8 + ctx.measureText(before).width, y + size - 8);
+    }
     text('[M] Karte', x + size - 8, y + size - 8, { size: 10, color: 'rgba(255,255,255,0.55)', align: 'right' });
   }
 
@@ -2400,7 +2810,8 @@
       if (s.type === 'turret') return `Schaden ${lvl.dmg} · Reichweite ${lvl.range} · ${lvl.rate}/s`;
       if (s.type === 'spike') return `Schaden ${lvl.dmg}`;
       if (s.type === 'mine') return `+${fmtCost(lvl.income)} alle ${def.interval}s`;
-      if (s.type === 'core') return `Radius ${lvl.radius} · Limit ${lvl.maxStructures}`;
+      if (s.type === 'core') return `Radius ${lvl.radius} · Limit ${lvl.maxStructures} · Lager ${lvl.slots}`;
+      if (s.type === 'storage') return `${lvl.slots} Plätze`;
       if (s.type === 'forge') {
         const lvNum = def.levels.indexOf(lvl) + 1;
         const n = Object.values(cfg.EQUIPMENT).filter((e) => e.recipe && e.recipe.forge <= lvNum).length;
@@ -2418,6 +2829,8 @@
       }
       if (s.hp < s.maxHp) lines.push([`Axt-Schlag repariert (${2 + s.level * 2}🪵)`, '#cfd8c0']);
       if (s.type === 'forge') lines.push(['[F] Schmiede öffnen (in der Nähe)', '#ffd76a']);
+      if (s.type === 'storage') lines.push(['[F] Truhe öffnen (in der Nähe)', '#ffd76a']);
+      if (s.type === 'core') lines.push(['[F] Kern-Lager: Unterhalt einlagern', '#ffd76a']);
       lines.push(['[X] Abreißen', '#aab6a0']);
     }
     ctx.font = '14px Segoe UI, sans-serif';
@@ -2461,8 +2874,8 @@
 
     const wm = screenToWorld(mouse.x, mouse.y);
     hovered = null;
-    const overUi = hotbarRects().some((r) => inRect(mouse.x, mouse.y, r)) ||
-      (invOpen && inRect(mouse.x, mouse.y, invLayout().panel)) || (forgeOpen && inRect(mouse.x, mouse.y, forgeLayout().panel)) || (skillOpen && inRect(mouse.x, mouse.y, skillLayout().panel)) || (charOpen && inRect(mouse.x, mouse.y, charLayout().panel)) || (buildOpen && inRect(mouse.x, mouse.y, buildLayout().panel));
+    const overUi = hotbarRects().some((r) => inRect(mouse.x, mouse.y, r)) || inRect(mouse.x, mouse.y, logoutRect()) ||
+      (invOpen && inRect(mouse.x, mouse.y, invLayout().panel)) || (forgeOpen && inRect(mouse.x, mouse.y, forgeLayout().panel)) || (skillOpen && inRect(mouse.x, mouse.y, skillLayout().panel)) || overWindow(mouse.x, mouse.y) || (buildOpen && inRect(mouse.x, mouse.y, buildLayout().panel)) || (teamOpen && inRect(mouse.x, mouse.y, teamLayout().panel));
     if (!overUi && !drag) {
       for (const s of structs.values()) {
         const h = (cfg.STRUCTURES[s.type].size * cfg.TILE) / 2;
@@ -2553,6 +2966,20 @@
     ctx.globalAlpha = 1;
     for (const r of resources) if (r.type === 'tree' && visible(r.x, r.y, r.r)) drawTree(r);
     for (const r of resources) if (visible(r.x, r.y, r.r)) drawResBar(r);
+    if (me.ch && !invOpen && now - chestCloseT > 0.3) closeChest();
+    const chestNear = !me.ch && !forgeOpen ? nearestChest() : null;
+    if (chestNear) {
+      const bob = Math.sin(now * 4) * 3;
+      ctx.font = 'bold 16px Segoe UI, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      const isCore = chestNear.s.type === 'core', label = isCore ? '[F] Kern-Lager' : '[F] Truhe';
+      const ly = chestNear.s.y - (isCore ? 70 : 36) + bob;
+      ctx.strokeText(label, chestNear.s.x, ly);
+      ctx.fillStyle = '#ffd76a';
+      ctx.fillText(label, chestNear.s.x, ly);
+    }
     if (forgeOpen && !nearForge()) forgeOpen = false;
     if (!forgeOpen && nearForge()) {
       const [, fx, fy] = me.forge;
