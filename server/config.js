@@ -6,7 +6,7 @@ module.exports = {
   TICK_RATE: 60, // Simulationsschritte pro Sekunde
   SEND_RATE: 30, // Zustands-Updates an Clients pro Sekunde
 
-  WORLD_SIZE: 6000,
+  WORLD_SIZE: 10000,
   TILE: 50,
   VIEW: { w: 1600, h: 900 }, // sichtbarer Weltausschnitt des Clients
   PVP: false, // true = Spieler können sich gegenseitig & fremde Basen angreifen
@@ -56,12 +56,53 @@ module.exports = {
     maxDropDist: 160, // wie weit man Items vom Körper weg werfen kann
   },
 
+  // Weltgenerator (server/world.js)
+  MAP: {
+    seed: +process.env.SEED || 0, // 0 = bei jedem Serverstart neue Welt
+    biomeCell: 100, // Auflösung des Biom-Rasters
+    cities: 6,
+    cityRadius: 760,
+    cityBlock: 430, // Abstand der Häuser im 3×3-Stadtraster
+    citySpacing: 2600,
+    ruinDecay: 0.14, // Anteil fehlender Mauerstücke
+    lakes: 9,
+    cityZombies: 5, // Zombies, die in einer Stadt mit Spielern in der Nähe herumlaufen (+ pro Tag)
+    cityZombiesPerDay: 2,
+    noBuildMargin: 250, // Abstand zur Stadtgrenze, ab dem gebaut werden darf
+  },
+
   // amount: Vorrat [min, max] – leer abgebaut zerfällt die Ressource und wächst nach respawn Sekunden woanders nach.
   // bonus: Extra-Beute für den Spieler, der den letzten Schlag macht
+  // biomes: relative Häufigkeit je Biom (grass, forest, rocky, sand, meadow, urban)
   RESOURCES: {
-    tree: { count: 360, minR: 42, maxR: 62, solid: 0.7, gives: 'wood', amount: [60, 110], respawn: 60, bonus: { wood: 10 } },
-    rock: { count: 220, minR: 34, maxR: 50, solid: 0.9, gives: 'stone', amount: [80, 140], respawn: 90, bonus: { stone: 10 } },
-    gold: { count: 70, minR: 28, maxR: 38, solid: 0.9, gives: 'gold', amount: [30, 60], respawn: 150, bonus: { gold: 5 } },
+    tree: {
+      count: 1000, minR: 42, maxR: 62, solid: 0.7, gives: 'wood', amount: [60, 110], respawn: 60, bonus: { wood: 10 },
+      biomes: { grass: 0.5, forest: 7, rocky: 0.2, sand: 0.1, meadow: 0.25, urban: 0 },
+    },
+    rock: {
+      count: 600, minR: 34, maxR: 50, solid: 0.9, gives: 'stone', amount: [80, 140], respawn: 90, bonus: { stone: 10 },
+      biomes: { grass: 1, forest: 0.5, rocky: 6, sand: 0.4, meadow: 0.6, urban: 0 },
+    },
+    gold: {
+      count: 190, minR: 28, maxR: 38, solid: 0.9, gives: 'gold', amount: [30, 60], respawn: 150, bonus: { gold: 5 },
+      biomes: { grass: 0.4, forest: 0.3, rocky: 5, sand: 0.2, meadow: 0.3, urban: 0 },
+    },
+    // Kisten in Städten: count 0 (der Weltgenerator platziert sie), amount = Schläge bis sie brechen
+    crate: {
+      count: 0, minR: 20, maxR: 20, solid: 0.95, gives: null, amount: [3, 3], respawn: 120,
+      loot: [
+        { item: 'gold', chance: 0.8, min: 4, max: 12 },
+        { item: 'scrap', chance: 0.55, min: 1, max: 3 },
+        { item: 'arrow', chance: 0.4, min: 5, max: 15 },
+        { item: 'bone', chance: 0.4, min: 2, max: 5 },
+        { item: 'meat', chance: 0.3, min: 1, max: 2 },
+        { item: 'fur', chance: 0.25, min: 1, max: 3 },
+        { item: 'bow_wood', chance: 0.05, min: 1, max: 1 },
+        { item: 'dagger_gold', chance: 0.04, min: 1, max: 1 },
+        { item: 'fur_boots', chance: 0.05, min: 1, max: 1 },
+        { item: 'iron_hat', chance: 0.02, min: 1, max: 1 },
+      ],
+    },
   },
   RESOURCE_MIN_SCALE: 0.55, // so klein wird eine fast leere Ressource
 

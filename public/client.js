@@ -33,6 +33,8 @@
   let buildCat = 'base';
   let drag = null; // { slot, half } für Inventar-Slots oder { eq } für Ausrüstungs-Slots
   let projectiles = [];
+  let world = null; // Biome, Seen, Wege, Städte (statisch, kommt mit init)
+  const groundCanvas = document.createElement('canvas'); // 1 Pixel pro Biom-Zelle, wird weich hochskaliert
   let minimap = { e: [], p: [] }; // Gegner [x, y, feindlich, ...] und Spieler [x, y, ...] in Welt/10
   let resources = [];
   const resById = new Map();
@@ -99,6 +101,7 @@
       myId = m.id;
       cfg = m.cfg;
       resources = m.res.map(makeResource);
+      setupWorld(m.world);
       resById.clear();
       for (const r of resources) resById.set(r.id, r);
       selected = 0;
@@ -112,12 +115,48 @@
     }
   }
 
+  const BIOME_COLORS = [
+    [92, 139, 62], // Wiese
+    [63, 111, 46], // Wald
+    [125, 132, 102], // Fels
+    [205, 187, 131], // Sand
+    [119, 163, 74], // Blumenwiese
+    [123, 117, 99], // Stadt
+  ];
+
+  function setupWorld(w) {
+    world = w;
+    world.ruinTiles = w.cities.flatMap((c) => c.ruins);
+    // Bodenbild: eine Zelle = ein Pixel, leichte Farbvariation für Struktur
+    groundCanvas.width = groundCanvas.height = w.n;
+    const g = groundCanvas.getContext('2d'), img = g.createImageData(w.n, w.n);
+    for (let i = 0; i < w.n * w.n; i++) {
+      const [r, gr, b] = BIOME_COLORS[+w.biomes[i]];
+      const v = 1 + (hash2(i % w.n, Math.floor(i / w.n)) - 0.5) * 0.08;
+      img.data[i * 4] = r * v; img.data[i * 4 + 1] = gr * v; img.data[i * 4 + 2] = b * v; img.data[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+  }
+
+  // Deterministischer Zufall pro Rasterzelle (für Deko, die beim Scrollen nicht flackert)
+  function hash2(x, y) {
+    let h = Math.imul(x, 374761393) + Math.imul(y, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+
+  const biomeAt = (x, y) => {
+    const i = Math.max(0, Math.min(world.n - 1, Math.floor(x / world.G))), j = Math.max(0, Math.min(world.n - 1, Math.floor(y / world.G)));
+    return +world.biomes[j * world.n + i];
+  };
+
   function makeResource([id, type, x, y, r, frac], born) {
     return { id, type, x, y, r, frac, shake: -9, hitT: -9, bornT: born ? now : -9, pts: rockShape(id, r) };
   }
 
   // Aktuelle Größe: schrumpft mit dem Vorrat, wächst beim Nachwachsen kurz auf
   function resScale(r) {
+    if (r.type === 'crate') return 1;
     const min = cfg.RESOURCE_MIN_SCALE;
     const grow = Math.min(1, (now - r.bornT) / 0.8);
     return (min + (1 - min) * r.frac) * (grow < 1 ? 1 - Math.pow(1 - grow, 3) : 1);
@@ -425,6 +464,11 @@
       if (type === 'mine' && me.mines >= def.limit) return 'limit';
     }
     if (!canAfford(def.levels[0].cost)) return 'kosten';
+    if (world.cities.some((c) => Math.hypot(c.x - g.x, c.y - g.y) < c.r + cfg.MAP.noBuildMargin + g.half)) return 'stadt';
+    for (const [x, y, r] of world.lakes) {
+      const cx = Math.max(g.x - g.half, Math.min(x, g.x + g.half)), cy = Math.max(g.y - g.half, Math.min(y, g.y + g.half));
+      if (Math.hypot(x - cx, y - cy) < r) return 'wasser';
+    }
     for (const s of structs.values()) {
       const sh = (cfg.STRUCTURES[s.type].size * cfg.TILE) / 2;
       if (Math.abs(s.x - g.x) < sh + g.half - 1 && Math.abs(s.y - g.y) < sh + g.half - 1) return 'belegt';
@@ -587,9 +631,14 @@
     const WS = cfg.WORLD_SIZE, T = cfg.TILE;
     ctx.fillStyle = '#26321d';
     ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-    ctx.fillStyle = '#5c8b3e';
-    ctx.fillRect(0, 0, WS, WS);
-    ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+    // Biome: kleines Bild mit Glättung auf die Weltgröße gestreckt -> weiche Übergänge
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(groundCanvas, 0, 0, world.n, world.n, 0, 0, WS, WS);
+    drawGroundDecor(x0, y0, x1, y1);
+    drawRoads();
+    drawCities(x0, y0, x1, y1);
+    drawLakes(x0, y0, x1, y1);
+    ctx.strokeStyle = 'rgba(0,0,0,0.04)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     for (let x = Math.max(0, Math.floor(x0 / T) * T); x <= Math.min(WS, x1); x += T) { ctx.moveTo(x, Math.max(0, y0)); ctx.lineTo(x, Math.min(WS, y1)); }
@@ -598,6 +647,153 @@
     ctx.strokeStyle = 'rgba(0,0,0,0.45)';
     ctx.lineWidth = 10;
     ctx.strokeRect(0, 0, WS, WS);
+  }
+
+  // Grasbüschel, Blumen, Kiesel – pro Zelle deterministisch
+  function drawGroundDecor(x0, y0, x1, y1) {
+    const G = world.G;
+    for (let j = Math.max(0, Math.floor(y0 / G)); j <= Math.min(world.n - 1, Math.floor(y1 / G)); j++) {
+      for (let i = Math.max(0, Math.floor(x0 / G)); i <= Math.min(world.n - 1, Math.floor(x1 / G)); i++) {
+        const b = +world.biomes[j * world.n + i];
+        if (b === 5) continue;
+        for (let k = 0; k < 3; k++) {
+          const hx = hash2(i * 3 + k, j), hy = hash2(j * 3 + k, i + 7), ht = hash2(i + k * 13, j + 3);
+          const x = i * G + hx * G, y = j * G + hy * G;
+          if (b === 3 || b === 2) { // Kiesel
+            if (ht < 0.5) circle(x, y, 2 + ht * 4, b === 3 ? 'rgba(150,130,90,0.45)' : 'rgba(80,85,70,0.4)');
+          } else if (b === 4 && ht < 0.45) { // Blumen
+            circle(x, y, 3, ['#f3e27a', '#f2f2f2', '#e88ab0', '#9fb8ff'][Math.floor(ht * 9) % 4]);
+            circle(x, y, 1.2, '#c48a1a');
+          } else if (ht < 0.7) { // Grasbüschel
+            ctx.strokeStyle = b === 1 ? 'rgba(25,60,20,0.5)' : 'rgba(45,95,30,0.5)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (const dx of [-4, 0, 4]) { ctx.moveTo(x + dx * 0.5, y + 4); ctx.lineTo(x + dx, y - 5); }
+            ctx.stroke();
+          }
+        }
+      }
+    }
+  }
+
+  // Weg als geglättete Linie durch die Stützpunkte
+  function roadPath(pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mxp = (pts[i][0] + pts[i + 1][0]) / 2, myp = (pts[i][1] + pts[i + 1][1]) / 2;
+      ctx.quadraticCurveTo(pts[i][0], pts[i][1], mxp, myp);
+    }
+    const last = pts[pts.length - 1];
+    ctx.lineTo(last[0], last[1]);
+  }
+
+  function drawRoads() {
+    ctx.lineCap = ctx.lineJoin = 'round';
+    for (const pts of world.roads) {
+      roadPath(pts);
+      ctx.strokeStyle = 'rgba(110,88,55,0.55)';
+      ctx.lineWidth = 86;
+      ctx.stroke();
+      ctx.strokeStyle = '#a58c62';
+      ctx.lineWidth = 66;
+      ctx.stroke();
+      ctx.setLineDash([26, 40]);
+      ctx.strokeStyle = 'rgba(80,62,38,0.25)';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.lineCap = ctx.lineJoin = 'butt';
+  }
+
+  function drawCities(x0, y0, x1, y1) {
+    const T = cfg.TILE;
+    for (const c of world.cities) {
+      if (c.x + c.r < x0 || c.x - c.r > x1 || c.y + c.r < y0 || c.y - c.r > y1) continue;
+      // Hausböden mit Fliesen
+      for (const [bx, by, bw, bh] of c.buildings) {
+        ctx.fillStyle = '#8d8472';
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.strokeStyle = 'rgba(70,62,50,0.35)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let x = bx; x <= bx + bw; x += T / 2) { ctx.moveTo(x, by); ctx.lineTo(x, by + bh); }
+        for (let y = by; y <= by + bh; y += T / 2) { ctx.moveTo(bx, y); ctx.lineTo(bx + bw, y); }
+        ctx.stroke();
+      }
+      // Ortsname auf dem Boden
+      ctx.font = 'bold 54px Segoe UI, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(40,34,25,0.22)';
+      ctx.fillText(c.name.toUpperCase(), c.x, c.y - c.r + 70);
+    }
+  }
+
+  // Seen: Sandufer, Wasser, hellere Mitte und langsam wandernde Wellen
+  function drawLakes(x0, y0, x1, y1) {
+    const vis = world.lakes.filter(([x, y, r]) => x + r + 40 > x0 && x - r - 40 < x1 && y + r + 40 > y0 && y - r - 40 < y1);
+    if (!vis.length) return;
+    const layer = (grow, color) => {
+      ctx.beginPath();
+      for (const [x, y, r] of vis) { ctx.moveTo(x + r + grow, y); ctx.arc(x, y, r + grow, 0, TAU); }
+      ctx.fillStyle = color;
+      ctx.fill();
+    };
+    layer(34, '#d2bf88');
+    layer(6, '#2f6a9c');
+    layer(0, '#3c7fb6');
+    layer(-40, '#4a8fc6');
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 2;
+    for (const [x, y, r] of vis) {
+      for (let k = 0; k < 3; k++) {
+        const a = hash2(x + k, y) * TAU + now * 0.15, d = r * (0.25 + 0.5 * hash2(y + k, x));
+        const wx = x + Math.cos(a) * d, wy = y + Math.sin(a) * d;
+        ctx.beginPath();
+        ctx.arc(wx, wy, 14, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Ruinenmauern der Städte
+  function drawRuins(x0, y0, x1, y1) {
+    const h = cfg.TILE / 2;
+    for (const [x, y, v] of world.ruinTiles) {
+      if (x + h < x0 || x - h > x1 || y + h < y0 || y - h > y1) continue;
+      rrect(x - h + 1, y - h + 1, h * 2 - 2, h * 2 - 2, 4, ['#8a8378', '#817a6e', '#938b7e', '#7a7468'][v], '#4f4a42', 3);
+      ctx.strokeStyle = 'rgba(60,55,48,0.6)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - h + 4, y); ctx.lineTo(x + h - 4, y);
+      ctx.moveTo(x + (v % 2 ? -6 : 6), y - h + 4); ctx.lineTo(x + (v % 2 ? -6 : 6), y);
+      if (v === 3) { ctx.moveTo(x - 10, y + 4); ctx.lineTo(x - 2, y + 14); ctx.lineTo(x + 6, y + 9); }
+      ctx.stroke();
+    }
+  }
+
+  function drawCrate(r) {
+    const o = shakeOffset(r), h = r.r;
+    ctx.save();
+    ctx.translate(r.x + o, r.y);
+    rrect(-h, -h, h * 2, h * 2, 4, '#a8743f', '#5a3a1c', 3);
+    ctx.strokeStyle = '#6b4524';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-h + 3, -h + 3); ctx.lineTo(h - 3, h - 3);
+    ctx.moveTo(-h, 0); ctx.lineTo(h, 0);
+    ctx.stroke();
+    // Risse, je weniger Haltbarkeit übrig ist
+    if (r.frac < 0.9) {
+      ctx.strokeStyle = '#2a1a0c';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-h * 0.6, -h * 0.8); ctx.lineTo(-h * 0.2, -h * 0.2); ctx.lineTo(-h * 0.5, h * 0.3);
+      if (r.frac < 0.5) { ctx.moveTo(h * 0.7, -h * 0.5); ctx.lineTo(h * 0.2, h * 0.1); ctx.lineTo(h * 0.6, h * 0.8); }
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function drawBaseZone() {
@@ -1390,7 +1586,8 @@
 
   // Wie "hoch" Objekte sind (bestimmt die Länge der Sonnenschatten).
   // Ressourcen relativ zum Radius, Gebäude in Welteinheiten.
-  const RES_HEIGHT = { tree: 1.5, rock: 0.55, gold: 0.5 };
+  const RES_HEIGHT = { tree: 1.5, rock: 0.55, gold: 0.5, crate: 1 };
+  const RUIN_HEIGHT = 40;
   const STRUCT_HEIGHT = { core: 60, wall: 42, door: 30, window: 42, spike: 10, turret: 55, mine: 28, forge: 38 };
 
   // Sonnenstand aus der Tageszeit: morgens Schatten lang nach Westen,
@@ -1448,19 +1645,20 @@
       const rr = r.r * resScale(r);
       capsule(r.x, r.y, rr * 0.88, rr * RES_HEIGHT[r.type]);
     }
-    for (const s of structs.values()) {
-      if (!vis(s.x, s.y, 60)) continue;
-      const h = (cfg.STRUCTURES[s.type].size * cfg.TILE) / 2 - 3, len = STRUCT_HEIGHT[s.type] || 30;
+    // Quader: Hülle aus Grundfläche und um den Sonnenvektor verschobener Grundfläche
+    const box = (x, y, h, len) => {
       const ox = sun.dx * len, oy = sun.dy * len, pts = [];
-      for (const [cx, cy] of [[-h, -h], [h, -h], [h, h], [-h, h]]) {
-        pts.push([s.x + cx, s.y + cy], [s.x + cx + ox, s.y + cy + oy]);
-      }
+      for (const [cx, cy] of [[-h, -h], [h, -h], [h, h], [-h, h]]) pts.push([x + cx, y + cy], [x + cx + ox, y + cy + oy]);
       const hull = convexHull(pts);
       g.beginPath();
       hull.forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py)));
       g.closePath();
       g.fill();
+    };
+    for (const s of structs.values()) {
+      if (vis(s.x, s.y, 60)) box(s.x, s.y, (cfg.STRUCTURES[s.type].size * cfg.TILE) / 2 - 3, STRUCT_HEIGHT[s.type] || 30);
     }
+    for (const [x, y] of world.ruinTiles) if (vis(x, y, 30)) box(x, y, cfg.TILE / 2 - 1, RUIN_HEIGHT);
     for (const z of zombies.values()) {
       if (vis(z.dx, z.dy, 40)) { const r = cfg.ENEMIES[z.type].r; capsule(z.dx, z.dy, r * 0.85, r * 1.1); }
     }
@@ -1490,23 +1688,26 @@
       const t2 = [lx + Math.cos(th + al) * t, ly + Math.sin(th + al) * t];
       out.push([t1, ray(...t1), ray(...t2), t2]);
     }
-    for (const s of structs.values()) {
-      if (s === source || cfg.STRUCTURES[s.type].shootThrough) continue;
-      const h = (cfg.STRUCTURES[s.type].size * cfg.TILE) / 2 - 2;
-      if (Math.abs(s.x - lx) > R + h || Math.abs(s.y - ly) > R + h) continue;
-      if (Math.abs(s.x - lx) < h && Math.abs(s.y - ly) < h) continue; // Licht steht im Gebäude
-      // Silhouette: die beiden Ecken mit kleinstem/größtem Winkel (relativ zur Richtung zur Mitte)
-      const base = Math.atan2(s.y - ly, s.x - lx);
+    // Quadrat: Silhouette = die beiden Ecken mit kleinstem/größtem Winkel (relativ zur Richtung zur Mitte)
+    const square = (sx, sy, h) => {
+      if (Math.abs(sx - lx) > R + h || Math.abs(sy - ly) > R + h) return;
+      if (Math.abs(sx - lx) < h && Math.abs(sy - ly) < h) return; // Licht steht im Hindernis
+      const base = Math.atan2(sy - ly, sx - lx);
       let lo = null, hi = null, loA = Infinity, hiA = -Infinity;
       for (const [cx, cy] of [[-h, -h], [h, -h], [h, h], [-h, h]]) {
-        const px = s.x + cx, py = s.y + cy;
+        const px = sx + cx, py = sy + cy;
         let a = Math.atan2(py - ly, px - lx) - base;
         a = Math.atan2(Math.sin(a), Math.cos(a));
         if (a < loA) { loA = a; lo = [px, py]; }
         if (a > hiA) { hiA = a; hi = [px, py]; }
       }
       out.push([lo, ray(...lo), ray(...hi), hi]);
+    };
+    for (const s of structs.values()) {
+      if (s === source || cfg.STRUCTURES[s.type].shootThrough) continue;
+      square(s.x, s.y, (cfg.STRUCTURES[s.type].size * cfg.TILE) / 2 - 2);
     }
+    for (const [x, y] of world.ruinTiles) square(x, y, cfg.TILE / 2 - 1);
     return out;
   }
 
@@ -1798,6 +1999,29 @@
       ctx.fill();
       rrect(mx(me.core[1]) - 4, my(me.core[2]) - 4, 8, 8, 2, '#86e6ff');
     }
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(190,160,110,0.6)';
+    ctx.lineWidth = Math.max(2, 66 * k);
+    for (const pts of world.roads) {
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => (i ? ctx.lineTo(mx(px), my(py)) : ctx.moveTo(mx(px), my(py))));
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+    ctx.beginPath();
+    for (const [lx, ly, lr] of world.lakes) { ctx.moveTo(mx(lx) + lr * k, my(ly)); ctx.arc(mx(lx), my(ly), lr * k, 0, TAU); }
+    ctx.fillStyle = '#3c7fb6';
+    ctx.fill();
+    for (const c of world.cities) {
+      ctx.beginPath();
+      ctx.arc(mx(c.x), my(c.y), c.r * k, 0, TAU);
+      ctx.fillStyle = 'rgba(140,128,105,0.55)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(70,60,45,0.8)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      text(c.name, mx(c.x), my(c.y) + 3, { size: 9, bold: true, align: 'center', color: 'rgba(255,245,220,0.85)' });
+    }
     if (me.forge) rrect(mx(me.forge[1]) - 2.5, my(me.forge[2]) - 2.5, 5, 5, 1, '#ff9a3c');
     const e = minimap.e;
     for (let i = 0; i < e.length; i += 3) {
@@ -1920,7 +2144,12 @@
     drawGround(x0, y0, x1, y1);
     drawSunShadows(x0, y0, x1, y1);
     drawBaseZone();
-    for (const r of resources) if (r.type !== 'tree' && visible(r.x, r.y, r.r)) drawRock(r);
+    drawRuins(x0, y0, x1, y1);
+    for (const r of resources) {
+      if (r.type === 'tree' || !visible(r.x, r.y, r.r)) continue;
+      if (r.type === 'crate') drawCrate(r);
+      else drawRock(r);
+    }
     for (const s of structs.values()) drawStruct(s);
     for (const it of groundItems.values()) if (visible(it.x, it.y, 40)) drawGroundItem(it);
     drawGhost();

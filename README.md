@@ -23,7 +23,9 @@ und bei jedem Neustart/Deploy beginnt die Welt von vorn (der Spielstand liegt nu
 
 ## Spielablauf
 
-- Zufälliger Spawn → Holz, Stein, Gold farmen. Jede Ressource hat einen **Vorrat**: Sie schrumpft beim Abbau, zerfällt leer und wächst später an anderer Stelle nach (`RESOURCES` in `server/config.js`)
+- **Welt** (10 000 × 10 000, bei jedem Serverstart neu; fester Seed per `SEED=123 node server.js`): Biome Wiese, Wald, Blumenwiese, Fels und Sandufer. Bäume wachsen dicht im Wald, Steine & Gold im Fels. **Seen** sind unpassierbar (Pfeile fliegen drüber), **Feldwege** verbinden die Städte
+- **Ruinenstädte**: verfallene Häuser mit **Kisten** voller Beute (Gold, Schrott, Pfeile, selten Ausrüstung; kommen nach 2 Min. wieder). Dafür laufen dort mehr Zombies herum, und bauen darf man in Städten nicht
+- Zufälliger Spawn (außerhalb der Städte) → Holz, Stein, Gold farmen. Jede Ressource hat einen **Vorrat**: Sie schrumpft beim Abbau, zerfällt leer und wächst später an anderer Stelle nach (`RESOURCES` in `server/config.js`)
 - **Sprinten** mit `Shift` kostet Ausdauer. Leer gesprintet ist man kurz erschöpft. Ein Ring um die Figur und eine Leiste im HUD zeigen die Ausdauer
 - Alles landet im **Inventar** (`Tab`, 20 Slots mit Stapeln). Bauen/Upgraden zieht aus dem Inventar
 - Stapel per Drag & Drop umsortieren oder aus dem Fenster ziehen = droppen (`Shift` = Hälfte); Items am Boden kann jeder aufheben
@@ -62,6 +64,7 @@ Jeder angegriffene Gegner verfolgt seinen Angreifer für `ANGER_TIME` Sekunden. 
 |---|---|
 | `server/config.js` | **Alle Balancing-Werte** (Kosten, HP, Schaden, Spawnraten, PvP-Schalter) |
 | `server/game.js` | Autoritative Spielsimulation (Bewegung, Kampf, Bauen, Gegner-KI) |
+| `server/world.js` | Weltgenerator: Biome (Value-Noise), Seen, Ruinenstädte, Feldwege |
 | `server/inventory.js` | Slot-Inventar (Stapeln, Verschieben, Bezahlen) |
 | `server/ws.js` | Minimaler WebSocket-Server ohne Abhängigkeiten |
 | `server.js` | HTTP-Server + Game-Loop (30 Ticks/s, 15 Updates/s) |

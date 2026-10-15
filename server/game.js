@@ -1,6 +1,7 @@
 'use strict';
 const C = require('./config');
 const Inv = require('./inventory');
+const { generateWorld } = require('./world');
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -87,6 +88,11 @@ function circleHitsRect(x, y, r, s) {
   return (x - cx) ** 2 + (y - cy) ** 2 < r * r;
 }
 
+// Überlappt ein Kreis (x, y, r) ein statisches Objekt?
+function hitsStatic(o, x, y, r) {
+  return o.cr !== undefined ? Math.hypot(o.x - x, o.y - y) < o.cr + r : circleHitsRect(x, y, r, o);
+}
+
 const lv = (s) => C.STRUCTURES[s.type].levels[s.level];
 
 class Game {
@@ -116,19 +122,38 @@ class Game {
   get isNight() { return this.time % this.cycle >= C.DAY_LENGTH; }
 
   genWorld() {
+    this.world = generateWorld(C.MAP.seed || Math.floor(Math.random() * 2 ** 31));
+    for (const [x, y, r] of this.world.lakes) this.statics.insert({ kind: 'water', x, y, r, cr: r, br: r });
+    const half = C.TILE / 2;
+    for (const city of this.world.cities) {
+      for (const [x, y] of city.ruins) this.statics.insert({ kind: 'ruin', x, y, half, br: half * 1.42 });
+      for (const [x, y] of city.crates) this.spawnResource('crate', false, { x, y });
+    }
     for (const [type, def] of Object.entries(C.RESOURCES)) {
       for (let i = 0; i < def.count; i++) this.spawnResource(type, false);
     }
   }
 
+  cityAt(x, y, margin = 0) {
+    return this.world.cities.find((c) => Math.hypot(c.x - x, c.y - y) < c.r + margin) || null;
+  }
+
   // Neue Ressource an freier Stelle; respawn = true meidet Basen und Spieler
-  spawnResource(type, respawn) {
+  spawnResource(type, respawn, pos) {
     const def = C.RESOURCES[type], W = C.WORLD_SIZE;
-    for (let tries = 0; tries < 25; tries++) {
+    const maxW = def.biomes ? Math.max(...Object.values(def.biomes)) : 1;
+    for (let tries = 0; tries < (pos ? 1 : 150); tries++) {
       const r = rand(def.minR, def.maxR);
-      const x = rand(r + 80, W - r - 80), y = rand(r + 80, W - r - 80);
-      const near = this.statics.query(x, y, r + 120);
-      if (near.some((o) => (o.kind === 'res' ? Math.hypot(o.x - x, o.y - y) < o.br + r + 50 : circleHitsRect(x, y, r + 30, o)))) continue;
+      const x = pos ? pos.x : rand(r + 80, W - r - 80), y = pos ? pos.y : rand(r + 80, W - r - 80);
+      if (!pos) {
+        // Biom bestimmt die Wahrscheinlichkeit (Bäume im Wald, Steine & Gold im Fels …)
+        if (def.biomes && Math.random() * maxW > (def.biomes[this.world.biomeAt(x, y)] || 0)) continue;
+        if (this.cityAt(x, y, 60)) continue;
+        const near = this.statics.query(x, y, r + 120);
+        // Im Wald stehen Bäume dicht (Kronen dürfen sich überlappen), sonst mit Abstand
+        const gap = type === 'tree' && this.world.biomeAt(x, y) === 'forest' ? 12 : 50;
+        if (near.some((o) => (o.kind === 'res' ? Math.hypot(o.x - x, o.y - y) < o.br + r + gap : hitsStatic(o, x, y, r + 30)))) continue;
+      }
       if (respawn) {
         if ([...this.players.values()].some((p) => Math.hypot(p.x - x, p.y - y) < 700)) continue;
         if ([...this.structures.values()].some((s) => s.type === 'core' && Math.hypot(s.x - x, s.y - y) < lv(s).radius + 100)) continue;
@@ -148,6 +173,7 @@ class Game {
     o.amount -= n;
     const def = C.RESOURCES[o.type];
     if (o.amount <= 0) {
+      if (def.loot) this.dropLoot(o, def.loot, 1);
       if (p && def.bonus) {
         for (const [item, k] of Object.entries(def.bonus)) this.give(p, item, k, o.x, o.y);
         this.events.push([Math.round(o.x), Math.round(o.y), 'bonus', 0, def.bonus, p.id]);
@@ -156,7 +182,8 @@ class Game {
       this.resources.splice(this.resources.indexOf(o), 1);
       this.resChanged.delete(o.id);
       this.resRemoved.push(o.id);
-      this.resPending.push({ type: o.type, at: this.now + def.respawn });
+      // Kisten kommen an derselben Stelle wieder, alles andere wächst woanders nach
+      this.resPending.push({ type: o.type, at: this.now + def.respawn, pos: def.loot ? { x: o.x, y: o.y } : null });
       this.events.push([Math.round(o.x), Math.round(o.y), 'deplete', 0, o.type]);
       return;
     }
@@ -211,9 +238,13 @@ class Game {
       cfg: {
         WORLD_SIZE: C.WORLD_SIZE, TILE: C.TILE, VIEW: C.VIEW, PVP: C.PVP,
         DAY_LENGTH: C.DAY_LENGTH, NIGHT_LENGTH: C.NIGHT_LENGTH,
-        PLAYER: C.PLAYER, EQUIPMENT: C.EQUIPMENT, EQUIP_SLOTS: C.EQUIP_SLOTS, FORGE_TABS: C.FORGE_TABS, RESOURCE_MIN_SCALE: C.RESOURCE_MIN_SCALE, INVENTORY: C.INVENTORY, ITEMS: C.ITEMS, STRUCTURES: C.STRUCTURES, ENEMIES: C.ENEMIES, BUILD_CATEGORIES: C.BUILD_CATEGORIES, MINIMAP_RANGE: C.MINIMAP_RANGE,
+        PLAYER: C.PLAYER, EQUIPMENT: C.EQUIPMENT, EQUIP_SLOTS: C.EQUIP_SLOTS, FORGE_TABS: C.FORGE_TABS, RESOURCE_MIN_SCALE: C.RESOURCE_MIN_SCALE, INVENTORY: C.INVENTORY, ITEMS: C.ITEMS, STRUCTURES: C.STRUCTURES, ENEMIES: C.ENEMIES, BUILD_CATEGORIES: C.BUILD_CATEGORIES, MINIMAP_RANGE: C.MINIMAP_RANGE, MAP: C.MAP,
       },
       res: this.resources.map((r) => this.resWire(r)),
+      world: {
+        n: this.world.n, G: this.world.G, biomes: this.world.biomes, lakes: this.world.lakes, roads: this.world.roads,
+        cities: this.world.cities.map((c) => ({ x: Math.round(c.x), y: Math.round(c.y), r: c.r, name: c.name, buildings: c.buildings, ruins: c.ruins })),
+      },
     }));
     this.msg(p, 'Sammle Holz & Stein und baue deinen Basis-Kern (Baumenü [B])!');
     return p;
@@ -242,6 +273,7 @@ class Game {
     for (let i = 0; i < 60; i++) {
       const x = rand(200, W - 200), y = rand(200, W - 200);
       if (!this.isFree(x, y, p.r + 10)) continue;
+      if (this.cityAt(x, y, 500)) continue;
       let ok = true;
       for (const s of this.structures.values()) if (s.type === 'core' && Math.hypot(s.x - x, s.y - y) < 900) { ok = false; break; }
       for (const z of this.zombies.values()) if (Math.hypot(z.x - x, z.y - y) < 500) { ok = false; break; }
@@ -254,7 +286,7 @@ class Game {
 
   isFree(x, y, r) {
     for (const o of this.statics.query(x, y, r + 100)) {
-      if (o.kind === 'res' ? Math.hypot(o.x - x, o.y - y) < o.cr + r : circleHitsRect(x, y, r, o)) return false;
+      if (hitsStatic(o, x, y, r)) return false;
     }
     return true;
   }
@@ -415,8 +447,9 @@ class Game {
     }
     if (!Inv.canAfford(p.inv, def.levels[0].cost)) return 'Nicht genug Ressourcen im Inventar.';
     const box = { x, y, half: half - 1 };
-    for (const o of this.statics.query(x, y, half * 1.5 + 70)) {
-      if (o.kind === 'res') {
+    if (this.cityAt(x, y, C.MAP.noBuildMargin + half)) return 'In Städten kann nicht gebaut werden.';
+    for (const o of this.statics.query(x, y, Math.max(half * 1.5 + 70, 400))) {
+      if (o.cr !== undefined) {
         if (circleHitsRect(o.x, o.y, o.cr, box)) return 'Platz ist blockiert.';
       } else if (Math.abs(o.x - x) < o.half + half - 1 && Math.abs(o.y - y) < o.half + half - 1) {
         return 'Platz ist blockiert.';
@@ -565,12 +598,12 @@ class Game {
   }
 
   // Droptable würfeln; Beute fällt verstreut auf den Boden
-  dropLoot(z, drops) {
-    const mult = this.isNight ? C.DROP_NIGHT_BONUS : 1;
+  dropLoot(z, drops, fixedMult) {
+    const mult = fixedMult || (this.isNight ? C.DROP_NIGHT_BONUS : 1);
     for (const d of drops || []) {
       if (Math.random() >= d.chance) continue;
       const n = Math.round((d.min + Math.floor(Math.random() * (d.max - d.min + 1))) * mult);
-      const a = rand(0, TAU), r = rand(8, z.r + 10);
+      const a = rand(0, TAU), r = rand(8, (z.r || 20) + 10);
       this.dropItem(z.x + Math.cos(a) * r, z.y + Math.sin(a) * r, d.item, n);
     }
   }
@@ -620,13 +653,14 @@ class Game {
 
     for (const p of this.players.values()) this.updatePlayer(p, dt);
     this.spawnZombies(dt);
+    this.spawnCityZombies(dt);
     for (const z of [...this.zombies.values()]) this.updateZombie(z, dt);
     for (const s of [...this.structures.values()]) this.updateStructure(s, dt);
     this.updateProjectiles(dt);
     for (const it of this.items.values()) if (this.now - it.t > C.ITEMS.despawn) this.items.delete(it.id);
     // Nachwachsen (klappt es gerade nicht, wird es später erneut versucht)
     for (const pend of this.resPending) {
-      if (this.now >= pend.at && this.spawnResource(pend.type, true)) pend.done = true;
+      if (this.now >= pend.at && this.spawnResource(pend.type, true, pend.pos)) pend.done = true;
       else if (this.now >= pend.at) pend.at = this.now + 5;
     }
     this.resPending = this.resPending.filter((pend) => !pend.done);
@@ -698,7 +732,8 @@ class Game {
 
   collideStatics(e, structFilter, onTouch) {
     for (const o of this.statics.query(e.x, e.y, e.r + 90)) {
-      if (o.kind === 'res') pushOutCircle(e, o.x, o.y, o.cr);
+      if (o.cr !== undefined) pushOutCircle(e, o.x, o.y, o.cr); // Ressource oder See
+      else if (o.kind === 'ruin') pushOutRect(e, o);
       else if (structFilter(o) && pushOutRect(e, o) && onTouch) onTouch(o);
     }
   }
@@ -720,6 +755,12 @@ class Game {
     for (const o of this.statics.query(hx, hy, hr + 80)) {
       if (o.kind === 'res') {
         if (Math.hypot(o.x - hx, o.y - hy) < hr * 0.5 + o.r) {
+          if (o.type === 'crate') {
+            o.shook = this.now;
+            this.events.push([Math.round(o.x), Math.round(o.y), 'g', 0, o.id, 'crate', p.id]);
+            this.depleteResource(o, 1, p);
+            continue;
+          }
           const kind = C.RESOURCES[o.type].gives;
           const want = Math.min(tool.gather, o.amount);
           if (!want) continue;
@@ -733,7 +774,7 @@ class Game {
           this.events.push([Math.round(o.x), Math.round(o.y), 'g', got, o.id, kind, p.id]);
           this.depleteResource(o, got, p);
         }
-      } else if (circleHitsRect(hx, hy, hr * 0.6, o)) {
+      } else if (o.kind === 's' && circleHitsRect(hx, hy, hr * 0.6, o)) {
         if (o.owner === p.id) this.repair(p, o);
         else if (C.PVP) this.damageStructure(o, tool.damage * 1.5);
       }
@@ -783,6 +824,32 @@ class Game {
         const pack = C.ENEMIES[type].pack;
         const n = pack ? pack[0] + Math.floor(Math.random() * (pack[1] - pack[0] + 1)) : 1;
         for (let i = 0; i < n; i++) this.spawnZombie(type, x + rand(-40, 40), y + rand(-40, 40));
+        break;
+      }
+    }
+  }
+
+  // Städte sind gefährlich: dort laufen Zombies herum, sobald Spieler in der Nähe sind
+  spawnCityZombies(dt) {
+    const M = C.MAP, day = this.day, night = this.isNight;
+    for (const city of this.world.cities) {
+      if (this.zombies.size >= C.SPAWN.maxTotal) return;
+      city.spawnCd = (city.spawnCd || 0) - dt;
+      if (city.spawnCd > 0) continue;
+      city.spawnCd = rand(1.5, 2.5);
+      const players = [...this.players.values()].filter((p) => !p.dead && Math.hypot(p.x - city.x, p.y - city.y) < city.r + 1300);
+      if (!players.length) continue;
+      let n = 0;
+      for (const z of this.zombies.values()) if (z.ai === 'zombie' && Math.hypot(z.x - city.x, z.y - city.y) < city.r) n++;
+      const want = Math.round((M.cityZombies + M.cityZombiesPerDay * (day - 1)) * (night ? 1.5 : 1));
+      if (n >= want) continue;
+      for (let tries = 0; tries < 8; tries++) {
+        const a = rand(0, TAU), d = Math.sqrt(Math.random()) * city.r * 0.9;
+        const x = city.x + Math.cos(a) * d, y = city.y + Math.sin(a) * d;
+        if (!this.isFree(x, y, 30) || players.some((p) => Math.hypot(p.x - x, p.y - y) < 450)) continue;
+        let type = this.pickEnemyType(night, day);
+        if (C.ENEMIES[type].ai !== 'zombie') type = 'normal';
+        this.spawnZombie(type, x, y);
         break;
       }
     }
@@ -996,7 +1063,11 @@ class Game {
       }
       if (!hit && b.fromPlayer) {
         for (const o of this.statics.query(b.x, b.y, 10)) {
-          if (o.kind === 'res' ? Math.hypot(o.x - b.x, o.y - b.y) < o.cr : o.owner !== b.owner && !C.STRUCTURES[o.type].shootThrough && circleHitsRect(b.x, b.y, 3, o)) { hit = true; break; }
+          if (o.kind === 'water') continue;
+          const blocks = o.kind === 'res' ? Math.hypot(o.x - b.x, o.y - b.y) < o.cr
+            : o.kind === 'ruin' ? circleHitsRect(b.x, b.y, 3, o)
+              : o.owner !== b.owner && !C.STRUCTURES[o.type].shootThrough && circleHitsRect(b.x, b.y, 3, o);
+          if (blocks) { hit = true; break; }
         }
       }
       if (!hit && b.life > 0) keep.push(b);
