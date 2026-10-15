@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bastion.io</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="menu">
+    <div class="card">
+      <h1>Bastion<span>.io</span></h1>
+      <p class="tagline">Sammeln · Bauen · Upgraden · Überleben</p>
+      <input id="name" maxlength="16" placeholder="Dein Name" autocomplete="off">
+      <button id="play">Spielen</button>
+      <p id="menu-info"></p>
+      <div class="help">
+        <div><kbd>WASD</kbd> Bewegen</div>
+        <div><kbd>Linksklick</kbd> Schlagen / Bauen</div>
+        <div><kbd>B</kbd> Baumenü</div>
+        <div><kbd>1</kbd> Axt · <kbd>2</kbd> Bauen</div>
+        <div><kbd>H</kbd> Fleisch essen</div>
+        <div><kbd>E</kbd> Gebäude upgraden</div>
+        <div><kbd>X</kbd> Gebäude abreißen</div>
+        <div><kbd>Tab</kbd> Inventar</div>
+        <div><kbd>C</kbd> Charakter &amp; Ausrüstung</div>
+        <div><kbd>F</kbd> Schmiede (Äxte &amp; Kleidung)</div>
+        <div><kbd>Q</kbd> / <kbd>Rechtsklick</kbd> Zurück zur Axt</div>
+        <div>Eigene Gebäude mit der Axt schlagen = reparieren</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="client.js"></script>
+</body>
+</html>

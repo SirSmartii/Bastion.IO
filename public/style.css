@@ -1,0 +1,86 @@
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1d2616;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  user-select: none;
+}
+
+#game { display: block; }
+
+#menu {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(20, 30, 15, 0.55), rgba(8, 12, 6, 0.9));
+}
+#menu.hidden { display: none; }
+
+.card {
+  width: min(420px, calc(100vw - 32px));
+  padding: 32px 28px 24px;
+  border-radius: 16px;
+  background: rgba(24, 30, 20, 0.92);
+  border: 2px solid #4b5d38;
+  color: #e9eedd;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+h1 {
+  margin: 0;
+  font-size: 48px;
+  letter-spacing: 1px;
+  color: #f2d27a;
+  text-shadow: 0 4px 0 #6b4f17;
+}
+h1 span { color: #9fc56b; text-shadow: 0 4px 0 #3e5524; }
+
+.tagline { margin: 6px 0 22px; color: #a8b597; }
+
+#name, #play {
+  width: 100%;
+  font-size: 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 2px solid #4b5d38;
+}
+#name { background: #10150c; color: #fff; outline: none; }
+#name:focus { border-color: #9fc56b; }
+#play {
+  margin-top: 10px;
+  background: #7fae45;
+  border-color: #5a8130;
+  color: #13200a;
+  font-weight: 700;
+  cursor: pointer;
+}
+#play:hover { background: #92c453; }
+
+#menu-info { min-height: 20px; color: #f08a6b; margin: 10px 0 6px; }
+
+.help {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  text-align: left;
+  font-size: 13px;
+  color: #b9c4aa;
+}
+.help div:last-child { grid-column: span 2; }
+
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #2f3a26;
+  border: 1px solid #56663f;
+  font-family: inherit;
+  font-size: 12px;
+  color: #fff;
+}

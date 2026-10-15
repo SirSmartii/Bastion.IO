@@ -1,0 +1,14 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Ein einzelner Web-Service; der Server liefert Client (HTTP) und Spiel (WebSocket /ws) auf demselben Port.
+services:
+  - type: web
+    name: bastion-io
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
