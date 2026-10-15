@@ -39,16 +39,20 @@ module.exports = {
 
   INVENTORY: {
     slots: 20,
-    stack: { wood: 250, stone: 250, gold: 150, bone: 100, scrap: 50, fur: 50, meat: 30, arrow: 100 }, // maximale Stapelgröße pro Slot
+    stack: { wood: 250, stone: 250, gold: 150, bone: 100, scrap: 50, fur: 50, meat: 30, arrow_wood: 100, arrow_stone: 100, arrow_iron: 100, bullet: 120, shell: 60 }, // maximale Stapelgröße pro Slot
   },
 
   ITEMS: {
-    names: { wood: 'Holz', stone: 'Stein', gold: 'Gold', bone: 'Knochen', scrap: 'Schrott', fur: 'Fell', meat: 'Fleisch', arrow: 'Pfeil' },
+    names: { wood: 'Holz', stone: 'Stein', gold: 'Gold', bone: 'Knochen', scrap: 'Schrott', fur: 'Fell', meat: 'Fleisch', arrow_wood: 'Holzpfeil', arrow_stone: 'Steinpfeil', arrow_iron: 'Metallpfeil', bullet: 'Patrone', shell: 'Schrotpatrone' },
     food: { meat: 30 }, // essbar: HP-Heilung pro Stück
     eatCooldown: 1,
     // Stapelbare Items aus der Schmiede: amount Stück pro Herstellung
     recipes: {
-      arrow: { tab: 'ranged', amount: 10, forge: 1, cost: { wood: 10, stone: 4 } },
+      arrow_wood: { tab: 'ranged', amount: 10, forge: 1, cost: { wood: 12 } },
+      arrow_stone: { tab: 'ranged', amount: 10, forge: 1, cost: { wood: 10, stone: 8 } },
+      arrow_iron: { tab: 'ranged', amount: 10, forge: 2, cost: { wood: 10, scrap: 2 } },
+      bullet: { tab: 'guns', amount: 12, forge: 2, cost: { scrap: 1, gold: 3, stone: 4 } },
+      shell: { tab: 'guns', amount: 8, forge: 3, cost: { scrap: 1, gold: 4 } },
     },
     pickupRadius: 40,
     despawn: 180, // Sekunden, bis Items am Boden verschwinden
@@ -61,9 +65,10 @@ module.exports = {
     seed: +process.env.SEED || 0, // 0 = bei jedem Serverstart neue Welt
     biomeCell: 100, // Auflösung des Biom-Rasters
     cities: 6,
-    cityRadius: 760,
-    cityBlock: 430, // Abstand der Häuser im 3×3-Stadtraster
-    citySpacing: 2600,
+    cityRadius: 920,
+    cityBlock: 450, // Zellgröße des Straßenrasters (Vielfaches von TILE)
+    streetMargin: 75, // Abstand der Häuser zur Straßenmitte
+    citySpacing: 3000,
     ruinDecay: 0.14, // Anteil fehlender Mauerstücke
     lakes: 9,
     cityZombies: 5, // Zombies, die in einer Stadt mit Spielern in der Nähe herumlaufen (+ pro Tag)
@@ -93,7 +98,11 @@ module.exports = {
       loot: [
         { item: 'gold', chance: 0.8, min: 4, max: 12 },
         { item: 'scrap', chance: 0.55, min: 1, max: 3 },
-        { item: 'arrow', chance: 0.4, min: 5, max: 15 },
+        { item: 'arrow_wood', chance: 0.35, min: 5, max: 15 },
+        { item: 'arrow_stone', chance: 0.2, min: 3, max: 8 },
+        { item: 'bullet', chance: 0.3, min: 4, max: 10 },
+        { item: 'shell', chance: 0.2, min: 3, max: 6 },
+        { item: 'pistol', chance: 0.02, min: 1, max: 1 },
         { item: 'bone', chance: 0.4, min: 2, max: 5 },
         { item: 'meat', chance: 0.3, min: 1, max: 2 },
         { item: 'fur', chance: 0.25, min: 1, max: 3 },
@@ -108,7 +117,10 @@ module.exports = {
 
   // Ausrüstung: jedes Teil ist ein eigenes Item (Stapelgröße 1) und passt in genau einen Slot.
   // stats werden auf die Grundwerte addiert; eine Waffe ersetzt damage/gather/attackSpeed/reach der Faust.
-  // kind: axe | sword | dagger | spear | bow (Bögen schießen Pfeile, range = Schussweite).
+  // kind: axe | sword | dagger | spear | bow | gun.
+  // Fernwaffen: ammo = Munitionsgruppe (siehe AMMO), range = Schussweite,
+  //   projectile: speed, pellets (Kugeln pro Schuss), spread (Streuung in rad).
+  //   noise: Schüsse locken Gegner in diesem Umkreis an.
   // tab: Reiter in der Schmiede (siehe FORGE_TABS)
   // recipe: in der Schmiede herstellbar ab Schmiede-Level forge. tier = Farbstufe (0 Holz/Fell … 4 Rubin)
   EQUIP_SLOTS: [
@@ -178,13 +190,34 @@ module.exports = {
     // Bögen: Fernkampf, verbrauchen Pfeile, können nichts abbauen
     bow_wood: {
       name: 'Holzbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', tier: 0,
+      ammo: 'arrow', projectile: { speed: 950 },
       stats: { damage: 14, gather: 0, attackSpeed: 1.3, range: 520 },
       recipe: { forge: 1, cost: { wood: 60, fur: 3 } },
     },
     bow_composite: {
       name: 'Kompositbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', tier: 3,
+      ammo: 'arrow', projectile: { speed: 950 },
       stats: { damage: 28, gather: 0, attackSpeed: 1.7, range: 680 },
       recipe: { forge: 3, cost: { wood: 120, bone: 20, scrap: 6, fur: 6 } },
+    },
+    // Feuerwaffen: stark, brauchen Munition und sind laut
+    pistol: {
+      name: 'Pistole', slot: 'weapon', kind: 'gun', model: 'pistol', tab: 'guns', tier: 1,
+      ammo: 'bullet', projectile: { speed: 1500, spread: 0.05 }, noise: 600,
+      stats: { damage: 24, gather: 0, attackSpeed: 2.4, range: 620 },
+      recipe: { forge: 2, cost: { scrap: 6, gold: 40, wood: 20 } },
+    },
+    shotgun: {
+      name: 'Schrotflinte', slot: 'weapon', kind: 'gun', model: 'shotgun', tab: 'guns', tier: 2,
+      ammo: 'shell', projectile: { speed: 1300, pellets: 7, spread: 0.3 }, noise: 750,
+      stats: { damage: 13, gather: 0, attackSpeed: 1.0, range: 360 },
+      recipe: { forge: 3, cost: { scrap: 12, gold: 80, wood: 40 } },
+    },
+    rifle: {
+      name: 'Gewehr', slot: 'weapon', kind: 'gun', model: 'rifle', tab: 'guns', tier: 3,
+      ammo: 'bullet', projectile: { speed: 1900, spread: 0.01 }, noise: 900,
+      stats: { damage: 62, gather: 0, attackSpeed: 0.85, range: 1000 },
+      recipe: { forge: 4, cost: { scrap: 20, gold: 150, wood: 60 } },
     },
 
     fur_hat: {
@@ -221,13 +254,29 @@ module.exports = {
     },
   },
 
+  // Munitionsgruppen. types von schwach nach stark; ohne Auswahl ([R]) wird die stärkste vorhandene benutzt.
+  // damage: Bonus auf den Waffenschaden, recover: Chance, dass das Geschoss nach einem Treffer
+  // (Gegner oder Hindernis) als Item liegen bleibt, look: Aussehen im Client.
+  AMMO: {
+    arrow: {
+      label: 'Pfeile',
+      types: [
+        { item: 'arrow_wood', damage: 0, recover: 0.3, look: 0 },
+        { item: 'arrow_stone', damage: 5, recover: 0.5, look: 2 },
+        { item: 'arrow_iron', damage: 12, recover: 0.75, look: 3 },
+      ],
+    },
+    bullet: { label: 'Patronen', types: [{ item: 'bullet', damage: 0, recover: 0, look: 1 }] },
+    shell: { label: 'Schrotpatronen', types: [{ item: 'shell', damage: 0, recover: 0, look: 1 }] },
+  },
+
   FORGE_TABS: [
     { id: 'axes', name: 'Äxte' },
     { id: 'melee', name: 'Nahkampf' },
-    { id: 'ranged', name: 'Fernkampf' },
+    { id: 'ranged', name: 'Bögen' },
+    { id: 'guns', name: 'Feuerwaffen' },
     { id: 'armor', name: 'Kleidung' },
   ],
-  ARROW_SPEED: 950,
 
   BUILD_CATEGORIES: [
     { id: 'base', name: 'Basis' },
@@ -335,7 +384,7 @@ module.exports = {
   // drops: jeder Eintrag wird einzeln gewürfelt (chance 0..1, Menge min..max)
   ENEMIES: {
     normal: {
-      name: 'Zombie', ai: 'zombie', hp: 50, speed: 85, dmg: 8, sdmg: 12, r: 22, score: 10,
+      name: 'Zombie', ai: 'zombie', hp: 50, speed: 85, dmg: 8, sdmg: 12, r: 22, score: 10, xp: 8,
       spawn: { day: 35, night: 55 },
       drops: [
         { item: 'gold', chance: 0.6, min: 1, max: 3 },
@@ -343,7 +392,7 @@ module.exports = {
       ],
     },
     runner: {
-      name: 'Läufer', ai: 'zombie', hp: 30, speed: 150, dmg: 5, sdmg: 6, r: 18, score: 10,
+      name: 'Läufer', ai: 'zombie', hp: 30, speed: 150, dmg: 5, sdmg: 6, r: 18, score: 10, xp: 8,
       spawn: { day: 10, night: 25 },
       drops: [
         { item: 'gold', chance: 0.5, min: 1, max: 2 },
@@ -351,7 +400,7 @@ module.exports = {
       ],
     },
     brute: {
-      name: 'Koloss', ai: 'zombie', hp: 260, speed: 55, dmg: 18, sdmg: 50, r: 34, score: 40,
+      name: 'Koloss', ai: 'zombie', hp: 260, speed: 55, dmg: 18, sdmg: 50, r: 34, score: 40, xp: 30,
       spawn: { day: 0, night: 4, perDay: 2, max: 25 },
       drops: [
         { item: 'gold', chance: 1, min: 5, max: 10 },
@@ -360,7 +409,7 @@ module.exports = {
       ],
     },
     wolf: {
-      name: 'Wolf', ai: 'pack', hp: 45, speed: 175, dmg: 7, sdmg: 5, r: 20, score: 15, aggro: 480,
+      name: 'Wolf', ai: 'pack', hp: 45, speed: 175, dmg: 7, sdmg: 5, r: 20, score: 15, xp: 10, aggro: 480,
       pack: [2, 4], spawn: { day: 18, night: 12 },
       drops: [
         { item: 'fur', chance: 0.7, min: 1, max: 2 },
@@ -368,14 +417,14 @@ module.exports = {
       ],
     },
     pig: {
-      name: 'Wildschwein', ai: 'neutral', hp: 70, speed: 120, dmg: 9, sdmg: 0, r: 24, score: 5,
+      name: 'Wildschwein', ai: 'neutral', hp: 70, speed: 120, dmg: 9, sdmg: 0, r: 24, score: 5, xp: 5,
       spawn: { day: 25, night: 0 },
       drops: [
         { item: 'meat', chance: 1, min: 1, max: 3 },
       ],
     },
     bear: {
-      name: 'Bär', ai: 'territorial', hp: 420, speed: 105, dmg: 26, sdmg: 40, r: 36, score: 60,
+      name: 'Bär', ai: 'territorial', hp: 420, speed: 105, dmg: 26, sdmg: 40, r: 36, score: 60, xp: 40,
       aggro: 260, leash: 750, spawn: { day: 5, night: 3, perDay: 1, max: 10 },
       drops: [
         { item: 'fur', chance: 1, min: 2, max: 4 },
@@ -384,6 +433,31 @@ module.exports = {
       ],
     },
   },
+  // Erfahrung: benötigte EP für Level L -> L+1 = round(base * L^exp)
+  XP: {
+    base: 60,
+    exp: 1.45,
+    gather: 0.5, // pro abgebauter Einheit
+    deplete: 4, // Ressource komplett abgebaut
+    crate: 6, // Kiste aufgebrochen
+    craft: 3,
+    build: 1,
+  },
+
+  // Fertigkeiten: pro Level-Up 1 Punkt. per = Bonus pro Rang (Prozentwerte als Anteil)
+  SKILLS: [
+    { id: 'strength', name: 'Stärke', icon: '💪', desc: '+8 % Nahkampfschaden', max: 5, per: { meleeDmg: 0.08 } },
+    { id: 'marksman', name: 'Schütze', icon: '🎯', desc: '+8 % Fernkampfschaden', max: 5, per: { rangedDmg: 0.08 } },
+    { id: 'vitality', name: 'Vitalität', icon: '❤', desc: '+15 Leben', max: 5, per: { maxHp: 15 } },
+    { id: 'endurance', name: 'Kondition', icon: '⚡', desc: '+15 Ausdauer', max: 5, per: { stamina: 15 } },
+    { id: 'agility', name: 'Flinkheit', icon: '👟', desc: '+4 % Tempo', max: 5, per: { speedPct: 0.04 } },
+    { id: 'toughness', name: 'Zähigkeit', icon: '🛡', desc: '+3 Rüstung', max: 5, per: { armor: 3 } },
+    { id: 'recovery', name: 'Erholung', icon: '✚', desc: '+0,6 Leben/s Regeneration', max: 5, per: { regen: 0.6 } },
+    { id: 'gatherer', name: 'Sammler', icon: '⛏', desc: '+15 % Chance auf doppelten Ertrag', max: 5, per: { doubleGather: 0.15 } },
+  ],
+
+  HOTBAR_SIZE: 6,
+
   ANGER_TIME: 8, // Sekunden, die ein angegriffener Gegner seinen Angreifer verfolgt
   DROP_NIGHT_BONUS: 1.5,
   MINIMAP_RANGE: 1800, // Radar-Reichweite der Minimap (Welteinheiten um den Spieler)

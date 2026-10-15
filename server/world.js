@@ -42,17 +42,31 @@ function segDist(px, py, ax, ay, bx, by) {
   return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
 }
 
-// Eine Ruinenstadt: Häuser auf einem 3×3-Raster aus Ruinenmauer-Kacheln mit Eingängen & Lücken
+// Eine Ruinenstadt: Straßenraster (Zellen der Größe cityBlock), Häuser nur innerhalb der Zellen
+// mit Abstand zur Straße. Die Hauptstraßen durch die Mitte enden an vier Stadttoren.
 function makeCity(rng, x, y, name) {
-  const M = C.MAP, T = C.TILE;
-  const city = { x, y, r: M.cityRadius, name, buildings: [], ruins: [], crates: [] };
-  const snap = (v) => Math.round(v / T) * T;
-  for (let bx = -1; bx <= 1; bx++) {
-    for (let by = -1; by <= 1; by++) {
+  const M = C.MAP, T = C.TILE, B = M.cityBlock, R = M.cityRadius, m = M.streetMargin;
+  x = Math.round(x / T) * T;
+  y = Math.round(y / T) * T;
+  const city = { x, y, r: R, name, buildings: [], ruins: [], crates: [], streets: [] };
+  const cells = Math.ceil(R / B);
+  // Straßen entlang der Zellgrenzen, auf den Stadtkreis zugeschnitten
+  for (let k = -cells; k <= cells; k++) {
+    const L = Math.sqrt(R * R - (k * B) ** 2);
+    if (!(L > B * 0.4)) continue;
+    city.streets.push([[x + k * B, Math.round(y - L)], [x + k * B, Math.round(y + L)]]);
+    city.streets.push([[Math.round(x - L), y + k * B], [Math.round(x + L), y + k * B]]);
+  }
+  city.gates = [[x + R, y], [x - R, y], [x, y + R], [x, y - R]];
+  const maxTiles = Math.floor((B - 2 * m) / T);
+  for (let i = -cells; i < cells; i++) {
+    for (let j = -cells; j < cells; j++) {
+      const cx0 = x + i * B, cy0 = y + j * B;
+      if (Math.hypot(cx0 + B / 2 - x, cy0 + B / 2 - y) > R - 150) continue;
       if (rng() < 0.2) continue;
-      const w = 5 + Math.floor(rng() * 4), h = 4 + Math.floor(rng() * 4);
-      const ox = snap(x + bx * M.cityBlock - (w * T) / 2 + (rng() - 0.5) * 80);
-      const oy = snap(y + by * M.cityBlock - (h * T) / 2 + (rng() - 0.5) * 80);
+      const w = 4 + Math.floor(rng() * (maxTiles - 3)), h = 4 + Math.floor(rng() * (maxTiles - 3));
+      const ox = cx0 + m + Math.floor(rng() * (maxTiles - w + 1)) * T;
+      const oy = cy0 + m + Math.floor(rng() * (maxTiles - h + 1)) * T;
       city.buildings.push([ox, oy, w * T, h * T]);
       // Eingang: 2 Kacheln breite Lücke auf einer zufälligen Seite
       const side = Math.floor(rng() * 4), len = side % 2 ? h : w, door = 1 + Math.floor(rng() * (len - 3));
@@ -86,7 +100,8 @@ function generateWorld(seed) {
   const cities = [];
   const names = CITY_NAMES.slice().sort(() => rng() - 0.5);
   for (let tries = 0; tries < 2000 && cities.length < M.cities; tries++) {
-    const x = 900 + rng() * (W - 1800), y = 900 + rng() * (W - 1800);
+    const edge = M.cityRadius + 250;
+    const x = edge + rng() * (W - 2 * edge), y = edge + rng() * (W - 2 * edge);
     if (cities.some((c) => Math.hypot(c.x - x, c.y - y) < M.citySpacing)) continue;
     cities.push(makeCity(rng, x, y, names[cities.length % names.length]));
   }
@@ -104,13 +119,25 @@ function generateWorld(seed) {
       });
     }
     linked.push(best.j);
-    const a = cities[best.i], b = cities[best.j], pts = [[a.x, a.y]];
-    const nx = -(b.y - a.y) / best.d, ny = (b.x - a.x) / best.d;
+    // Weg: Stadtmitte -> Hauptstraße -> Tor (zur anderen Stadt hin) -> Feldweg -> Tor -> Hauptstraße -> Mitte
+    const a = cities[best.i], b = cities[best.j];
+    const gate = (c, o) => {
+      const dx = o.x - c.x, dy = o.y - c.y;
+      const dir = Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
+      return { p: [c.x + dir[0] * c.r, c.y + dir[1] * c.r], out: [c.x + dir[0] * (c.r + 180), c.y + dir[1] * (c.r + 180)] };
+    };
+    const ga = gate(a, b), gb = gate(b, a);
+    const pts = [[a.x, a.y], ga.p, ga.out];
+    const [ax, ay] = ga.out, [bx, by] = gb.out, d = Math.hypot(bx - ax, by - ay) || 1;
+    const nx = -(by - ay) / d, ny = (bx - ax) / d;
     for (const t of [0.33, 0.66]) {
-      const off = (rng() - 0.5) * best.d * 0.18;
-      pts.push([a.x + (b.x - a.x) * t + nx * off, a.y + (b.y - a.y) * t + ny * off]);
+      let off = (rng() - 0.5) * d * 0.18;
+      const px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+      // Biegung nur, wenn sie nicht in eine Stadt führt
+      if (cities.some((c) => Math.hypot(c.x - (px + nx * off), c.y - (py + ny * off)) < c.r + 150)) off = 0;
+      pts.push([px + nx * off, py + ny * off]);
     }
-    pts.push([b.x, b.y]);
+    pts.push(gb.out, gb.p, [b.x, b.y]);
     roads.push(pts.map(([px, py]) => [Math.round(px), Math.round(py)]));
   }
   const nearRoad = (x, y, d) => roads.some((pts) => pts.some((p, i) => i > 0 && segDist(x, y, pts[i - 1][0], pts[i - 1][1], p[0], p[1]) < d));

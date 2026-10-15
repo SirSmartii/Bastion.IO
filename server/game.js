@@ -174,6 +174,7 @@ class Game {
     const def = C.RESOURCES[o.type];
     if (o.amount <= 0) {
       if (def.loot) this.dropLoot(o, def.loot, 1);
+      if (p) this.addXp(p, def.loot ? C.XP.crate : C.XP.deplete);
       if (p && def.bonus) {
         for (const [item, k] of Object.entries(def.bonus)) this.give(p, item, k, o.x, o.y);
         this.events.push([Math.round(o.x), Math.round(o.y), 'bonus', 0, def.bonus, p.id]);
@@ -224,10 +225,12 @@ class Game {
       angle: 0, hp: P.hp, maxHp: P.hp, keys: 0, attacking: false, atkCd: 0, swings: 0,
       inv: Inv.create(), equip: {}, stats: null, core: null, forge: null, count: 0, counts: {},
       score: 0, kills: 0, dead: false, respawnT: 0, lastHurt: -99, spawnCd: 3, fullMsgT: -99, eatT: -99,
-      stamina: P.stamina, sprinting: false, exhausted: false, sprintStop: -99, ammoMsgT: -99,
+      stamina: P.stamina, sprinting: false, exhausted: false, sprintStop: -99, ammoMsgT: -99, ammoPref: {},
+      level: 1, xp: 0, sp: 0, skills: {}, hotbar: new Array(C.HOTBAR_SIZE).fill(null),
     };
     for (const [item, n] of Object.entries(P.startRes)) Inv.add(p.inv, item, n);
     for (const sl of C.EQUIP_SLOTS) p.equip[sl.id] = P.startEquip[sl.id] || null;
+    p.hotbar[0] = p.equip.weapon;
     this.computeStats(p);
     p.hp = p.maxHp;
     this.placeAtSpawn(p);
@@ -238,16 +241,37 @@ class Game {
       cfg: {
         WORLD_SIZE: C.WORLD_SIZE, TILE: C.TILE, VIEW: C.VIEW, PVP: C.PVP,
         DAY_LENGTH: C.DAY_LENGTH, NIGHT_LENGTH: C.NIGHT_LENGTH,
-        PLAYER: C.PLAYER, EQUIPMENT: C.EQUIPMENT, EQUIP_SLOTS: C.EQUIP_SLOTS, FORGE_TABS: C.FORGE_TABS, RESOURCE_MIN_SCALE: C.RESOURCE_MIN_SCALE, INVENTORY: C.INVENTORY, ITEMS: C.ITEMS, STRUCTURES: C.STRUCTURES, ENEMIES: C.ENEMIES, BUILD_CATEGORIES: C.BUILD_CATEGORIES, MINIMAP_RANGE: C.MINIMAP_RANGE, MAP: C.MAP,
+        PLAYER: C.PLAYER, AMMO: C.AMMO, SKILLS: C.SKILLS, HOTBAR_SIZE: C.HOTBAR_SIZE, EQUIPMENT: C.EQUIPMENT, EQUIP_SLOTS: C.EQUIP_SLOTS, FORGE_TABS: C.FORGE_TABS, RESOURCE_MIN_SCALE: C.RESOURCE_MIN_SCALE, INVENTORY: C.INVENTORY, ITEMS: C.ITEMS, STRUCTURES: C.STRUCTURES, ENEMIES: C.ENEMIES, BUILD_CATEGORIES: C.BUILD_CATEGORIES, MINIMAP_RANGE: C.MINIMAP_RANGE, MAP: C.MAP,
       },
       res: this.resources.map((r) => this.resWire(r)),
       world: {
         n: this.world.n, G: this.world.G, biomes: this.world.biomes, lakes: this.world.lakes, roads: this.world.roads,
-        cities: this.world.cities.map((c) => ({ x: Math.round(c.x), y: Math.round(c.y), r: c.r, name: c.name, buildings: c.buildings, ruins: c.ruins })),
+        cities: this.world.cities.map((c) => ({ x: c.x, y: c.y, r: c.r, name: c.name, buildings: c.buildings, ruins: c.ruins, streets: c.streets })),
       },
     }));
+    // Spawnschutz bis zum nächsten Einbruch der Nacht, danach eine ruhige erste Nacht (ohne Horde)
+    const dayIdx = Math.floor(this.time / this.cycle);
+    const nightStart = (this.isNight ? dayIdx + 1 : dayIdx) * this.cycle + C.DAY_LENGTH;
+    p.protectUntil = nightStart;
+    p.calmUntil = nightStart + C.NIGHT_LENGTH;
+    p.protectNote = 0;
     this.msg(p, 'Sammle Holz & Stein und baue deinen Basis-Kern (Baumenü [B])!');
+    this.msg(p, '🛡 Spawnschutz bis zur ersten Nacht – Gegner greifen dich nicht an.');
     return p;
+  }
+
+  isProtected(p) { return !!p && this.time < p.protectUntil; }
+  isCalm(p) { return !!p && this.time < p.calmUntil; }
+
+  // Hinweise beim Wechsel der Schutzphasen
+  updateProtection(p) {
+    if (p.protectNote === 0 && !this.isProtected(p)) {
+      p.protectNote = 1;
+      this.msg(p, 'Dein Spawnschutz ist vorbei. Diese erste Nacht bleibt ruhig – keine Horde.');
+    } else if (p.protectNote === 1 && !this.isCalm(p)) {
+      p.protectNote = 2;
+      this.msg(p, 'Die Schonzeit ist vorbei – ab der nächsten Nacht kommen die Horden!');
+    }
   }
 
   removePlayer(p) {
@@ -308,6 +332,10 @@ class Game {
       case 'equip': this.equip(p, m.slot | 0); break;
       case 'unequip': this.unequip(p, String(m.eq), Number.isInteger(m.to) ? m.to : -1, !!m.drop, +m.x, +m.y); break;
       case 'mv': Inv.move(p.inv, m.from | 0, m.to | 0); break;
+      case 'ammo': this.cycleAmmo(p); break;
+      case 'hb': this.assignHotbar(p, m.i | 0, m.item); break;
+      case 'use': this.useHotbar(p, m.i | 0); break;
+      case 'skill': this.learnSkill(p, String(m.id)); break;
       case 'eat': this.eat(p, Number.isInteger(m.slot) ? m.slot : -1); break;
       case 'drop': this.dropFromSlot(p, m.slot | 0, m.n | 0, +m.x, +m.y); break;
     }
@@ -421,6 +449,7 @@ class Game {
       p.core = s;
       this.msg(p, 'Basis gegründet! Baue Mauern, Türme & Stacheln im Radius.');
     } else {
+      this.addXp(p, C.XP.build);
       p.count++;
       p.counts[type] = (p.counts[type] || 0) + 1;
       if (type === 'forge') {
@@ -501,6 +530,7 @@ class Game {
     const n = def.recipe.amount || 1;
     this.give(p, id, n, p.x, p.y);
     this.events.push([Math.round(f.x), Math.round(f.y), 'up']);
+    this.addXp(p, C.XP.craft);
     this.msg(p, eq ? `${def.name} hergestellt! Ausrüsten im Charakterfenster [C].` : `${n}× ${def.name} hergestellt!`);
   }
 
@@ -522,8 +552,19 @@ class Game {
         else st[k] = (st[k] || 0) + v;
       }
     }
-    st.speed = Math.max(80, st.speed);
-    st.ranged = !!(C.EQUIPMENT[p.equip.weapon] && C.EQUIPMENT[p.equip.weapon].kind === 'bow');
+    // Fertigkeiten: flache Boni addieren, Prozent-Boni multiplizieren
+    const bonus = {};
+    for (const sk of C.SKILLS) {
+      const rank = p.skills[sk.id] || 0;
+      for (const [k, v] of Object.entries(sk.per)) bonus[k] = (bonus[k] || 0) + v * rank;
+    }
+    for (const k of ['maxHp', 'stamina', 'armor', 'regen']) if (bonus[k]) st[k] = +(st[k] + bonus[k]).toFixed(1);
+    const weapon = C.EQUIPMENT[p.equip.weapon];
+    st.ranged = !!(weapon && weapon.ammo);
+    st.damage = +(st.damage * (1 + ((st.ranged ? bonus.rangedDmg : bonus.meleeDmg) || 0))).toFixed(1);
+    st.speed = Math.max(80, Math.round(st.speed * (1 + (bonus.speedPct || 0))));
+    st.doubleGather = +(bonus.doubleGather || 0).toFixed(2);
+    st.ammo = st.ranged ? weapon.ammo : null;
     st.reduction = +(st.armor / (st.armor + P.armorFactor)).toFixed(3);
     p.stats = st;
     p.maxHp = st.maxHp;
@@ -583,7 +624,7 @@ class Game {
   damageZombie(z, dmg, attackerId) {
     if (!this.zombies.has(z.id)) return;
     z.hp -= dmg;
-    this.events.push([Math.round(z.x), Math.round(z.y), 'hit']);
+    this.events.push([Math.round(z.x), Math.round(z.y - z.r), 'hit', Math.max(1, Math.round(dmg))]);
     if (z.hp > 0) return;
     this.zombies.delete(z.id);
     const def = C.ENEMIES[z.type];
@@ -591,6 +632,7 @@ class Game {
     this.dropLoot(z, def.drops);
     if (killer) {
       killer.score += def.score;
+      this.addXp(killer, def.xp);
       killer.kills++;
       this.lbDirty = true;
     }
@@ -609,10 +651,11 @@ class Game {
   }
 
   damagePlayer(p, dmg) {
-    if (p.dead) return;
-    p.hp -= dmg * (1 - p.stats.reduction);
+    if (p.dead || this.isProtected(p)) return;
+    const taken = dmg * (1 - p.stats.reduction);
+    p.hp -= taken;
     p.lastHurt = this.now;
-    this.events.push([Math.round(p.x), Math.round(p.y), 'hurt']);
+    this.events.push([Math.round(p.x), Math.round(p.y - p.r), 'hurt', Math.max(1, Math.round(taken)), p.id]);
     if (p.hp > 0) return;
     p.dead = true;
     p.hp = 0;
@@ -673,6 +716,7 @@ class Game {
   }
 
   updatePlayer(p, dt) {
+    this.updateProtection(p);
     if (p.dead) {
       p.respawnT -= dt;
       if (p.respawnT <= 0) this.respawn(p);
@@ -714,20 +758,130 @@ class Game {
     if (this.now - p.lastHurt > 5 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + p.stats.regen * dt);
   }
 
-  // Bogen: verbraucht einen Pfeil und schießt in Blickrichtung
+  // ---------- Erfahrung & Fertigkeiten ----------
+
+  xpNeeded(level) {
+    return Math.round(C.XP.base * level ** C.XP.exp);
+  }
+
+  addXp(p, amount) {
+    if (!amount || !p) return;
+    p.xp += amount;
+    while (p.xp >= this.xpNeeded(p.level)) {
+      p.xp -= this.xpNeeded(p.level);
+      p.level++;
+      p.sp++;
+      this.events.push([Math.round(p.x), Math.round(p.y), 'lvl', p.level, p.id]);
+      this.msg(p, `Level ${p.level}! +1 Skillpunkt – verteilen mit [K]`);
+    }
+  }
+
+  learnSkill(p, id) {
+    const sk = C.SKILLS.find((x) => x.id === id);
+    if (!sk || p.sp <= 0) return;
+    const rank = p.skills[id] || 0;
+    if (rank >= sk.max) return this.msg(p, `${sk.name} ist schon auf Maximum.`);
+    p.skills[id] = rank + 1;
+    p.sp--;
+    const hpFrac = p.hp / p.maxHp;
+    this.computeStats(p);
+    if (sk.per.maxHp) p.hp = Math.min(p.maxHp, hpFrac * p.maxHp + sk.per.maxHp);
+  }
+
+  // ---------- Hotbar ----------
+
+  isKnownItem(item) {
+    return !!(C.EQUIPMENT[item] || C.ITEMS.names[item]);
+  }
+
+  assignHotbar(p, i, item) {
+    if (i < 0 || i >= C.HOTBAR_SIZE) return;
+    if (item === null || item === undefined) { p.hotbar[i] = null; return; }
+    item = String(item);
+    if (!this.isKnownItem(item)) return;
+    // Ein Item steht höchstens einmal in der Hotbar
+    for (let k = 0; k < p.hotbar.length; k++) if (p.hotbar[k] === item) p.hotbar[k] = null;
+    p.hotbar[i] = item;
+  }
+
+  // Slot benutzen: Ausrüstung anlegen, Essen essen, Munitionstyp wählen
+  useHotbar(p, i) {
+    const item = p.hotbar[i];
+    if (!item || p.dead) return;
+    const slot = p.inv.findIndex((x) => x && x.item === item);
+    const eq = C.EQUIPMENT[item];
+    if (eq) {
+      if (p.equip[eq.slot] === item) return;
+      if (slot < 0) return this.msg(p, `${eq.name} ist nicht im Inventar.`);
+      return this.equip(p, slot);
+    }
+    if (C.ITEMS.food[item]) {
+      if (slot < 0) return this.msg(p, `Kein ${C.ITEMS.names[item]} im Inventar.`);
+      return this.eat(p, slot);
+    }
+    const group = Object.keys(C.AMMO).find((g) => C.AMMO[g].types.some((t) => t.item === item));
+    if (group) {
+      p.ammoPref[group] = item;
+      this.msg(p, `Munition: ${C.ITEMS.names[item]} (${Inv.count(p.inv, item)})`);
+    }
+  }
+
+  // Welche Munition wird verschossen? Gewählter Typ, sonst der stärkste vorhandene.
+  ammoFor(p, group) {
+    const types = C.AMMO[group].types;
+    const pref = types.find((t) => t.item === p.ammoPref[group]);
+    if (pref && Inv.count(p.inv, pref.item) > 0) return pref;
+    for (let i = types.length - 1; i >= 0; i--) if (Inv.count(p.inv, types[i].item) > 0) return types[i];
+    return null;
+  }
+
+  // [R]: zum nächsten vorhandenen Munitionstyp der ausgerüsteten Waffe wechseln
+  cycleAmmo(p) {
+    const def = C.EQUIPMENT[p.equip.weapon];
+    if (!def || !def.ammo) return;
+    const types = C.AMMO[def.ammo].types.filter((t) => Inv.count(p.inv, t.item) > 0);
+    if (types.length < 2) return this.msg(p, types.length ? `Nur ${C.ITEMS.names[types[0].item]} vorhanden.` : 'Keine Munition.');
+    const cur = this.ammoFor(p, def.ammo);
+    const next = types[(types.findIndex((t) => t === cur) + 1) % types.length];
+    p.ammoPref[def.ammo] = next.item;
+    this.msg(p, `Munition: ${C.ITEMS.names[next.item]} (${Inv.count(p.inv, next.item)})`);
+  }
+
+  // Fernwaffe: verbraucht 1 Munition, feuert pellets Geschosse mit Streuung; Schüsse sind laut
   shoot(p) {
-    if (Inv.count(p.inv, 'arrow') <= 0) {
-      if (this.now - p.ammoMsgT > 2) { p.ammoMsgT = this.now; this.msg(p, 'Keine Pfeile! In der Schmiede herstellen.'); }
+    const def = C.EQUIPMENT[p.equip.weapon], pr = def.projectile;
+    const am = this.ammoFor(p, def.ammo);
+    if (!am) {
+      if (this.now - p.ammoMsgT > 2) {
+        p.ammoMsgT = this.now;
+        this.msg(p, `Keine Munition (${C.AMMO[def.ammo].label})! In der Schmiede herstellen.`);
+      }
       return;
     }
-    Inv.remove(p.inv, 'arrow', 1);
+    Inv.remove(p.inv, am.item, 1);
     p.swings++;
-    const sp = C.ARROW_SPEED, a = p.angle;
-    this.projectiles.push({
-      x: p.x + Math.cos(a) * (p.r + 10), y: p.y + Math.sin(a) * (p.r + 10),
-      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-      dmg: p.stats.damage, life: p.stats.range / sp, owner: p.id, fromPlayer: true,
-    });
+    const look = am.look, muzzle = p.r + (def.kind === 'gun' ? 34 : 10);
+    const mx = p.x + Math.cos(p.angle) * muzzle, my = p.y + Math.sin(p.angle) * muzzle;
+    for (let i = 0; i < (pr.pellets || 1); i++) {
+      const a = p.angle + (Math.random() - 0.5) * 2 * (pr.spread || 0);
+      // Schrot fliegt unterschiedlich weit, damit die Garbe nicht als Linie endet
+      const range = p.stats.range * (pr.pellets > 1 ? rand(0.8, 1) : 1);
+      this.projectiles.push({
+        x: mx, y: my, vx: Math.cos(a) * pr.speed, vy: Math.sin(a) * pr.speed,
+        dmg: p.stats.damage + am.damage, life: range / pr.speed, owner: p.id, fromPlayer: true, look,
+        ammo: am.item, recover: am.recover,
+      });
+    }
+    if (def.kind === 'gun') this.events.push([Math.round(mx), Math.round(my), 'shot', +p.angle.toFixed(2)]);
+    if (def.noise) {
+      // Lärm: feindliche Gegner im Umkreis werden auf den Schützen aufmerksam
+      for (const z of this.zombies.values()) {
+        if (z.ai === 'neutral' || Math.hypot(z.x - p.x, z.y - p.y) > def.noise) continue;
+        z.angryAt = p.id;
+        z.angryUntil = this.now + C.ANGER_TIME;
+        z.retarget = 0;
+      }
+    }
   }
 
   collideStatics(e, structFilter, onTouch) {
@@ -762,7 +916,8 @@ class Game {
             continue;
           }
           const kind = C.RESOURCES[o.type].gives;
-          const want = Math.min(tool.gather, o.amount);
+          // Sammler-Skill: Chance auf doppelten Ertrag
+          const want = Math.min(tool.gather * (Math.random() < tool.doubleGather ? 2 : 1), o.amount);
           if (!want) continue;
           const got = want - Inv.add(p.inv, kind, want);
           if (!got) {
@@ -772,6 +927,7 @@ class Game {
           p.score += got;
           this.lbDirty = true;
           this.events.push([Math.round(o.x), Math.round(o.y), 'g', got, o.id, kind, p.id]);
+          this.addXp(p, got * C.XP.gather);
           this.depleteResource(o, got, p);
         }
       } else if (o.kind === 's' && circleHitsRect(hx, hy, hr * 0.6, o)) {
@@ -798,9 +954,10 @@ class Game {
 
   spawnZombies(dt) {
     const S = C.SPAWN;
-    const night = this.isNight, day = this.day;
+    const nightAll = this.isNight, day = this.day;
     for (const p of this.players.values()) {
-      if (p.dead || this.zombies.size >= S.maxTotal) continue;
+      if (p.dead || this.zombies.size >= S.maxTotal || this.isProtected(p)) continue;
+      const night = nightAll && !this.isCalm(p); // ruhige erste Nacht: Spawns wie am Tag
       p.spawnCd -= dt;
       if (p.spawnCd > 0) continue;
       p.spawnCd = (night ? S.nightInterval : S.dayInterval) * rand(0.7, 1.3);
@@ -902,23 +1059,23 @@ class Game {
 
     // Wer angegriffen wurde, verfolgt seinen Angreifer (alle Typen)
     const attacker = this.players.get(z.angryAt);
-    if (attacker && !attacker.dead && this.now < z.angryUntil && dist(z, attacker) < (def.leash || 900)) return attacker;
+    if (attacker && !attacker.dead && !this.isProtected(attacker) && this.now < z.angryUntil && dist(z, attacker) < (def.leash || 900)) return attacker;
     if (z.ai === 'neutral') return null;
 
     // Revier-Tiere halten ihr Ziel bis zur Leine, greifen aber nur in der Nähe an
-    if (z.ai === 'territorial' && z.target && z.target.kind === 'p' && !z.target.dead && dist(z, z.target) < def.leash) return z.target;
+    if (z.ai === 'territorial' && z.target && z.target.kind === 'p' && !z.target.dead && !this.isProtected(z.target) && dist(z, z.target) < def.leash) return z.target;
 
     const aggro = def.aggro || (night ? C.SPAWN.nightAggro : C.SPAWN.dayAggro);
     let best = null, bestD = Infinity;
     for (const p of this.players.values()) {
-      if (p.dead) continue;
+      if (p.dead || this.isProtected(p)) continue;
       const d = dist(z, p);
       if (d < aggro && d < bestD) { best = p; bestD = d; }
     }
     // Nur Zombies greifen nachts gezielt Basen an, außer ein Spieler steht direkt daneben
     if (z.ai === 'zombie' && night && !(best && bestD < 260)) {
       for (const s of this.structures.values()) {
-        if (s.type !== 'core') continue;
+        if (s.type !== 'core' || this.isCalm(this.players.get(s.owner))) continue;
         const d = dist(z, s);
         if (d < 1600 && d * 0.8 < bestD) { best = s; bestD = d * 0.8; }
       }
@@ -978,7 +1135,7 @@ class Game {
 
     if (z.atkCd <= 0) {
       if (touchingPlayer) {
-        this.damagePlayer(z.target, z.dmg);
+        if (!this.isProtected(z.target)) this.damagePlayer(z.target, z.dmg);
         z.atkCd = 1;
         z.attacks++;
       } else if (blocker && z.sdmg > 0) {
@@ -1070,6 +1227,7 @@ class Game {
           if (blocks) { hit = true; break; }
         }
       }
+      if (hit && b.recover && Math.random() < b.recover) this.dropItem(b.x - b.vx * 0.02, b.y - b.vy * 0.02, b.ammo, 1);
       if (!hit && b.life > 0) keep.push(b);
     }
     this.projectiles = keep;
@@ -1115,7 +1273,7 @@ class Game {
       for (const o of this.items.values()) if (inView(o)) it.push([o.id, o.item, o.n, Math.round(o.x), Math.round(o.y)]);
       for (const o of this.players.values()) {
         if (o.dead || !inView(o)) continue;
-        pl.push([o.id, Math.round(o.x), Math.round(o.y), +o.angle.toFixed(2), Math.round(o.hp), o.maxHp, o.name, o.swings, this.equipLook(o), o.sprinting ? 1 : 0]);
+        pl.push([o.id, Math.round(o.x), Math.round(o.y), +o.angle.toFixed(2), Math.round(o.hp), o.maxHp, o.name, o.swings, this.equipLook(o), o.sprinting ? 1 : 0, this.isProtected(o) ? 1 : 0]);
       }
       for (const z of this.zombies.values()) {
         if (!inView(z)) continue;
@@ -1125,14 +1283,16 @@ class Game {
         if (!inView(s, 400)) continue;
         ss.push([s.id, s.type, s.x, s.y, s.level, Math.round(s.hp), s.maxHp, s.owner, +s.angle.toFixed(2)]);
       }
-      for (const b of this.projectiles) if (inView(b)) pr.push([Math.round(b.x), Math.round(b.y), +Math.atan2(b.vy, b.vx).toFixed(2)]);
+      for (const b of this.projectiles) if (inView(b)) pr.push([Math.round(b.x), Math.round(b.y), +Math.atan2(b.vy, b.vx).toFixed(2), b.look || 0]);
       for (const e of events) if (inView({ x: e[0], y: e[1] })) ev.push(e);
       const core = p.core;
       const msg = {
         t: 's', tm, pl, zs, ss, pr, ev, it,
         me: {
           x: Math.round(p.x), y: Math.round(p.y), hp: Math.round(p.hp), maxHp: p.maxHp,
-          res: Inv.totals(p.inv), inv: p.inv.map((s) => (s ? [s.item, s.n] : 0)), eq: p.equip, stats: p.stats, st: Math.round(p.stamina), ex: p.exhausted ? 1 : 0, dead: p.dead, rt: +p.respawnT.toFixed(1), score: p.score, kills: p.kills,
+          res: Inv.totals(p.inv), inv: p.inv.map((s) => (s ? [s.item, s.n] : 0)), eq: p.equip, stats: p.stats, hb: p.hotbar,
+          prot: Math.max(0, Math.ceil(p.protectUntil - this.time)), calm: Math.max(0, Math.ceil(p.calmUntil - this.time)),
+          lvl: p.level, xp: Math.floor(p.xp), xpNext: this.xpNeeded(p.level), sp: p.sp, skills: p.skills, ammo: p.stats.ammo ? (this.ammoFor(p, p.stats.ammo) || C.AMMO[p.stats.ammo].types[0]).item : null, st: Math.round(p.stamina), ex: p.exhausted ? 1 : 0, dead: p.dead, rt: +p.respawnT.toFixed(1), score: p.score, kills: p.kills,
           core: core ? [core.id, core.x, core.y, core.level, lv(core).radius] : null,
           count: p.count, max: core ? lv(core).maxStructures : 0, mines: p.counts.mine || 0,
           forge: p.forge ? [p.forge.id, p.forge.x, p.forge.y, p.forge.level] : null,

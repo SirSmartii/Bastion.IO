@@ -14,18 +14,20 @@
   const playBtn = document.getElementById('play');
   const menuInfo = document.getElementById('menu-info');
 
-  const HOTBAR = ['axe', 'build']; // Slot 1 = Axt, Slot 2 = zuletzt gewähltes Gebäude
+  // Hotbar: HOTBAR_SIZE frei belegbare Item-Slots (Tasten 1–6) + Bau-Button (B)
   const LEVEL_COLORS = ['#a8743f', '#9aa1a8', '#e8b93f', '#62d6e8', '#e0577a'];
   const LEVEL_DARK = ['#6b4524', '#5c6268', '#9a7419', '#2b93a6', '#8f2a47'];
   const LEVEL_NAMES = ['Holz', 'Stein', 'Gold', 'Diamant', 'Rubin'];
-  const RES_ICON = { wood: '🪵', stone: '🪨', gold: '🪙', bone: '🦴', scrap: '🔩', fur: '🧶', meat: '🍖' };
+  const RES_ICON = { wood: '🪵', stone: '🪨', gold: '🪙', bone: '🦴', scrap: '🔩', fur: '🧶', meat: '🍖', arrow_wood: '🏹', arrow_stone: '🏹', arrow_iron: '🏹', bullet: '🔸', shell: '🔴' };
+  const ARROW_TIPS = [['#8a6236', '#4a3019'], null, ['#9aa1a8', '#5c6268'], ['#d4dde6', '#6a7682']]; // nach look
   const ZCOL = { normal: '#6d9b48', runner: '#a3c652', brute: '#4b6f37' };
   const TAU = Math.PI * 2;
 
   let ws = null, cfg = null, myId = 0, me = null;
   let tm = [1, 0, 0], lb = [], online = 0;
   const players = new Map(), zombies = new Map(), structs = new Map(), groundItems = new Map();
-  let invOpen = false, forgeOpen = false, buildOpen = false, charOpen = false;
+  let invOpen = false, forgeOpen = false, buildOpen = false, charOpen = false, mapOpen = false, skillOpen = false;
+  const mapCache = document.createElement('canvas'); // statischer Teil der Weltkarte
   let forgeTab = 'axes';
   let pendingTooltip = null;
   let staminaFade = 0;
@@ -38,7 +40,7 @@
   let minimap = { e: [], p: [] }; // Gegner [x, y, feindlich, ...] und Spieler [x, y, ...] in Welt/10
   let resources = [];
   const resById = new Map();
-  const particles = [], floats = [], toasts = [];
+  const particles = [], floats = [], toasts = [], flashes = [];
   let selected = 0;
   const keys = new Set();
   const mouse = { x: 0, y: 0, down: false };
@@ -204,7 +206,7 @@
     projectiles = m.pr;
     if (m.lb) { lb = m.lb; online = m.on; }
     if (m.ru) applyResourceUpdate(m.ru);
-    sync(players, m.pl, (a) => ({ id: a[0], x: a[1], y: a[2], angle: a[3], hp: a[4], maxHp: a[5], name: a[6], swings: a[7], look: a[8], sprint: a[9] }));
+    sync(players, m.pl, (a) => ({ id: a[0], x: a[1], y: a[2], angle: a[3], hp: a[4], maxHp: a[5], name: a[6], swings: a[7], look: a[8], sprint: a[9], prot: a[10] }));
     sync(zombies, m.zs, (a) => ({ id: a[0], type: a[1], x: a[2], y: a[3], angle: a[4], hp: a[5], maxHp: a[6], swings: a[7], aggro: a[8] }));
     if (m.mm) minimap = m.mm;
     sync(structs, m.ss, (a) => ({ id: a[0], type: a[1], x: a[2], y: a[3], level: a[4], hp: a[5], maxHp: a[6], owner: a[7], angle: a[8] }));
@@ -220,9 +222,19 @@
         // Kisten geben pro Schlag nichts (Menge 0) – nur Splitter, die Beute fällt beim Aufbrechen
         if (e[5] === 'crate') burst(x, y, '#a8743f', 6, 110);
         else if (e[6] === myId && e[3] > 0) floatText(x, y - (r ? r.r : 30), `+${e[3]} ${RES_ICON[e[5]]}`, '#ffffff');
-      } else if (k === 'hit') burst(x, y, '#9b2f2f', 5, 120);
+      } else if (k === 'hit') {
+        burst(x, y + 20, '#9b2f2f', 5, 120);
+        damageNumber(x, y, e[3], '#ff4a3d');
+      }
       else if (k === 'die') burst(x, y, '#3f5f2b', 16, 180);
-      else if (k === 'hurt') burst(x, y, '#d22c2c', 6, 140);
+      else if (k === 'hurt') {
+        burst(x, y + 20, '#d22c2c', 6, 140);
+        damageNumber(x, y, e[3], e[4] === myId ? '#b3001b' : '#ff4a3d');
+      } else if (k === 'lvl') {
+        burst(x, y, '#ffd76a', 30, 260);
+        burst(x, y, '#fff3b8', 14, 160);
+        floats.push({ x, y: y - 60, text: `Level ${e[3]}!`, color: '#ffd76a', life: 1.8, big: true });
+      }
       else if (k === 'boom') burst(x, y, '#7a6650', 22, 220);
       else if (k === 'fix') burst(x, y, '#7fd36a', 6, 90);
       else if (k === 'up') { burst(x, y, '#ffd84a', 18, 200); floatText(x, y - 30, 'Upgrade!', '#ffd84a'); }
@@ -231,6 +243,9 @@
       else if (k === 'bonus' && e[5] === myId) {
         const txt = Object.entries(e[4]).map(([item, n]) => `+${n} ${RES_ICON[item]}`).join(' ');
         floatText(x, y - 50, `Abbau-Bonus! ${txt}`, '#ffd76a');
+      } else if (k === 'shot') {
+        flashes.push({ x, y, a: e[3], t: now });
+        burst(x, y, '#ffd25a', 5, 160);
       } else if (k === 'deplete') {
         const col = { tree: '#3b8535', rock: '#8b9196', gold: '#f4c63d' }[e[4]];
         burst(x, y, col, 26, 260);
@@ -248,6 +263,11 @@
     }
   }
   function floatText(x, y, text, color) { floats.push({ x, y, text, color, life: 1.1 }); }
+  // Rote Schadenszahl über dem Getroffenen, leicht versetzt und mit kurzem "Pop"
+  function damageNumber(x, y, n, color) {
+    if (!n) return;
+    floats.push({ x: x + (Math.random() - 0.5) * 24, y: y - 8, text: String(n), color, life: 0.9, dmg: true, born: now });
+  }
   function toast(text) {
     const same = toasts.find((t) => t.text === text);
     if (same) { same.life = 3.5; return; }
@@ -280,6 +300,18 @@
         drag = null;
         mouse.down = false;
       } else toast(me.forge ? 'Geh näher an deine Schmiede.' : 'Du brauchst eine Schmiede (Baumenü [B]).');
+    } else if (e.code === 'KeyK') {
+      skillOpen = !skillOpen;
+      if (skillOpen) { invOpen = forgeOpen = buildOpen = charOpen = mapOpen = false; drag = null; mouse.down = false; }
+    } else if (e.code === 'Escape' && skillOpen) {
+      skillOpen = false;
+    } else if (e.code === 'KeyR') {
+      if (me.stats.ranged) send({ t: 'ammo' });
+    } else if (e.code === 'KeyM') {
+      mapOpen = !mapOpen;
+      if (mapOpen) { invOpen = forgeOpen = buildOpen = charOpen = false; drag = null; mouse.down = false; }
+    } else if (e.code === 'Escape' && mapOpen) {
+      mapOpen = false;
     } else if (e.code === 'KeyB') {
       toggleBuildMenu();
     } else if (e.code === 'KeyH') {
@@ -287,10 +319,16 @@
     } else if (e.code === 'Escape' && (invOpen || forgeOpen || buildOpen || charOpen)) {
       invOpen = forgeOpen = buildOpen = charOpen = false;
       drag = null;
-    } else if (e.code === 'Digit1') selected = 0;
-    else if (e.code === 'Digit2') {
-      if (buildType) selected = 1;
-      else toggleBuildMenu();
+    } else if (/^Digit[1-9]$/.test(e.code) && +e.code.slice(5) <= cfg.HOTBAR_SIZE) {
+      const i = +e.code.slice(5) - 1;
+      // Inventar offen und Maus über einem Item: Item auf diesen Slot legen, sonst Slot benutzen
+      const s = invSlotAt(mouse.x, mouse.y);
+      if (s >= 0 && me.inv[s]) {
+        send({ t: 'hb', i, item: me.inv[s][0] });
+      } else {
+        selected = 0;
+        send({ t: 'use', i });
+      }
     } else if (e.code === 'KeyQ' || e.code === 'Escape') selected = 0;
     else if (e.code === 'KeyE' && hovered && hovered.owner === myId) send({ t: 'u', id: hovered.id });
     else if (e.code === 'KeyX' && hovered && hovered.owner === myId) {
@@ -314,6 +352,8 @@
       // Rechtsklick: Essen / Ausrüsten im Inventar, Ablegen im Charakterfenster
       const s = invSlotAt(e.clientX, e.clientY), eq = eqSlotAt(e.clientX, e.clientY);
       const item = s >= 0 && me.inv[s] && me.inv[s][0];
+      const hb = hotbarRects().findIndex((r) => inRect(e.clientX, e.clientY, r));
+      if (hb >= 0 && hb < cfg.HOTBAR_SIZE) { send({ t: 'hb', i: hb, item: null }); return; } // Slot leeren
       if (item && cfg.ITEMS.food[item]) send({ t: 'eat', slot: s });
       else if (item && cfg.EQUIPMENT[item]) send({ t: 'equip', slot: s });
       else if (eq && me.eq[eq]) send({ t: 'unequip', eq });
@@ -321,9 +361,21 @@
       return;
     }
     if (e.button !== 0) return;
+    if (mapOpen) return; // Karte offen: Klicks gehen nicht ins Spiel
     const slot = hotbarRects().findIndex((r) => inRect(e.clientX, e.clientY, r));
-    if (slot === 0) { selected = 0; return; }
-    if (slot === 1) { toggleBuildMenu(); return; }
+    if (slot >= 0 && slot < cfg.HOTBAR_SIZE) { selected = 0; send({ t: 'use', i: slot }); return; }
+    if (slot === cfg.HOTBAR_SIZE) {
+      if (buildType && selected !== 1 && !buildOpen) selected = 1;
+      else toggleBuildMenu();
+      return;
+    }
+    if (skillOpen) {
+      const L = skillLayout();
+      const card = L.cards.find((c) => inRect(e.clientX, e.clientY, c.btn));
+      if (card) send({ t: 'skill', id: card.id });
+      else if (!inRect(e.clientX, e.clientY, L.panel)) skillOpen = false;
+      return;
+    }
     if (buildOpen) {
       const L = buildLayout();
       const tab = L.tabs.find((t) => inRect(e.clientX, e.clientY, t.rect));
@@ -376,6 +428,9 @@
     }
     const stack = me.inv[d.slot];
     if (!stack) return;
+    // Auf einen Hotbar-Slot gezogen: Item dort ablegen (bleibt im Inventar)
+    const hbT = hotbarRects().findIndex((r) => inRect(sx, sy, r));
+    if (hbT >= 0 && hbT < cfg.HOTBAR_SIZE) { send({ t: 'hb', i: hbT, item: stack[0] }); return; }
     if (invT >= 0) {
       if (invT !== d.slot) send({ t: 'mv', from: d.slot, to: invT });
     } else if (eqT) {
@@ -394,7 +449,7 @@
 
   function toggleBuildMenu() {
     buildOpen = !buildOpen;
-    invOpen = forgeOpen = charOpen = false;
+    invOpen = forgeOpen = charOpen = skillOpen = false;
     drag = null;
     mouse.down = false;
     if (buildOpen && buildType) buildCat = cfg.STRUCTURES[buildType].category;
@@ -509,17 +564,35 @@
     const k = s / 40;
     ctx.scale(k, k);
     if (cfg.EQUIPMENT[item]) drawEquipShape(cfg.EQUIPMENT[item]);
-    else if (item === 'arrow') {
+    else if (item.startsWith('arrow')) {
+      const [tip, tipDark] = ARROW_TIPS[cfg.AMMO.arrow.types.find((t) => t.item === item).look];
       ctx.rotate(-0.75);
       for (const oy of [-5, 5]) {
         rrect(-17, oy - 1.5, 30, 3, 1.5, '#a0784a', '#5a3d1e', 1);
         ctx.beginPath();
-        ctx.moveTo(13, oy - 4.5); ctx.lineTo(20, oy); ctx.lineTo(13, oy + 4.5);
+        ctx.moveTo(12, oy - 5); ctx.lineTo(21, oy); ctx.lineTo(12, oy + 5);
         ctx.closePath();
-        ctx.fillStyle = '#9aa1a8'; ctx.fill();
+        ctx.fillStyle = tip; ctx.fill();
+        ctx.strokeStyle = tipDark; ctx.lineWidth = 1.2; ctx.stroke();
         ctx.fillStyle = '#e8e2d0';
         ctx.fillRect(-18, oy - 4, 6, 3);
         ctx.fillRect(-18, oy + 1, 6, 3);
+      }
+    } else if (item === 'bullet') {
+      ctx.rotate(-0.6);
+      for (const oy of [-7, 0, 7]) {
+        rrect(-12, oy - 3, 16, 6, 1.5, '#c9a13a', '#7a5d14', 1.5);
+        ctx.beginPath();
+        ctx.moveTo(4, oy - 3); ctx.quadraticCurveTo(13, oy, 4, oy + 3);
+        ctx.closePath();
+        ctx.fillStyle = '#a8a8a8';
+        ctx.fill();
+      }
+    } else if (item === 'shell') {
+      ctx.rotate(-0.6);
+      for (const oy of [-6, 6]) {
+        rrect(-14, oy - 5, 22, 10, 2, '#c8352c', '#7a1a14', 2);
+        rrect(6, oy - 5, 8, 10, 2, '#d4b04a', '#7a5d14', 2);
       }
     } else if (item === 'wood') {
       ctx.rotate(-0.5);
@@ -640,12 +713,21 @@
     drawRoads();
     drawCities(x0, y0, x1, y1);
     drawLakes(x0, y0, x1, y1);
-    ctx.strokeStyle = 'rgba(0,0,0,0.04)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let x = Math.max(0, Math.floor(x0 / T) * T); x <= Math.min(WS, x1); x += T) { ctx.moveTo(x, Math.max(0, y0)); ctx.lineTo(x, Math.min(WS, y1)); }
-    for (let y = Math.max(0, Math.floor(y0 / T) * T); y <= Math.min(WS, y1); y += T) { ctx.moveTo(Math.max(0, x0), y); ctx.lineTo(Math.min(WS, x1), y); }
-    ctx.stroke();
+    // Baugitter nur beim Platzieren eines Gebäudes, und nur rund um die Maus
+    if (selected === 1 && buildType && !buildOpen && !me.dead) {
+      const wm = screenToWorld(mouse.x, mouse.y), R = 260;
+      const gx0 = Math.max(0, Math.floor((wm.x - R) / T) * T), gx1 = Math.min(WS, wm.x + R);
+      const gy0 = Math.max(0, Math.floor((wm.y - R) / T) * T), gy1 = Math.min(WS, wm.y + R);
+      const fade = ctx.createRadialGradient(wm.x, wm.y, 0, wm.x, wm.y, R);
+      fade.addColorStop(0, 'rgba(255,255,255,0.22)');
+      fade.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.strokeStyle = fade;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let x = gx0; x <= gx1; x += T) { ctx.moveTo(x, gy0); ctx.lineTo(x, gy1); }
+      for (let y = gy0; y <= gy1; y += T) { ctx.moveTo(gx0, y); ctx.lineTo(gx1, y); }
+      ctx.stroke();
+    }
     ctx.strokeStyle = 'rgba(0,0,0,0.45)';
     ctx.lineWidth = 10;
     ctx.strokeRect(0, 0, WS, WS);
@@ -713,6 +795,31 @@
     const T = cfg.TILE;
     for (const c of world.cities) {
       if (c.x + c.r < x0 || c.x - c.r > x1 || c.y + c.r < y0 || c.y - c.r > y1) continue;
+      // Gepflasterte Straßen im Raster, Marktplatz in der Mitte
+      const sw = cfg.MAP.streetMargin * 1.5;
+      ctx.lineCap = 'square';
+      for (const [w, color] of [[sw + 10, 'rgba(70,64,52,0.5)'], [sw, '#8f8775']]) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = w;
+        ctx.beginPath();
+        for (const [[ax, ay], [bx, by]] of c.streets) { ctx.moveTo(ax, ay); ctx.lineTo(bx, by); }
+        ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(60,55,45,0.18)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([14, 10]);
+      ctx.beginPath();
+      for (const [[ax, ay], [bx, by]] of c.streets) {
+        for (const off of [-sw / 4, sw / 4]) {
+          const v = ax === bx;
+          ctx.moveTo(ax + (v ? off : 0), ay + (v ? 0 : off));
+          ctx.lineTo(bx + (v ? off : 0), by + (v ? 0 : off));
+        }
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineCap = 'butt';
+      circle(c.x, c.y, sw * 1.1, '#968e7b', 'rgba(70,64,52,0.5)', 5);
       // Hausböden mit Fliesen
       for (const [bx, by, bw, bh] of c.buildings) {
         ctx.fillStyle = '#8d8472';
@@ -1108,7 +1215,16 @@
     const [weapon, head, chest] = p.look || [];
     const wDef = cfg.EQUIPMENT[weapon], hDef = cfg.EQUIPMENT[head], cDef = cfg.EQUIPMENT[chest];
     const kind = wDef ? wDef.kind : 'fist';
-    if (kind === 'bow') {
+    if (kind === 'gun') {
+      const recoil = st < 0.12 ? (1 - st / 0.12) * 7 : 0;
+      ctx.save();
+      ctx.translate(r * 0.55 - recoil, r * 0.18);
+      drawGun(wDef.model);
+      ctx.restore();
+      circle(r * 0.62 - recoil, r * 0.28, r * 0.28, '#f0c8a0', '#8a6a4a', 3);
+      if (wDef.model !== 'pistol') circle(r * 1.35 - recoil, r * 0.42, r * 0.26, '#f0c8a0', '#8a6a4a', 3);
+      else circle(r * 0.45 - recoil, -r * 0.2, r * 0.26, '#f0c8a0', '#8a6a4a', 3);
+    } else if (kind === 'bow') {
       // Bogen vorne mit beiden Händen; nach dem Schuss schnellt die Sehne zurück
       const pull = st < 0.3 ? 1 - st / 0.3 : 0;
       ctx.save();
@@ -1167,6 +1283,13 @@
     ctx.strokeText(p.name, p.dx, p.dy - r - 12);
     ctx.fillStyle = isMe ? '#fff' : '#ffe9b0';
     ctx.fillText(p.name, p.dx, p.dy - r - 12);
+    if (p.prot) {
+      const pulse = 0.5 + Math.sin(now * 3 + p.id) * 0.5;
+      const g = ctx.createRadialGradient(p.dx, p.dy, r * 0.8, p.dx, p.dy, r + 16);
+      g.addColorStop(0, 'rgba(130,210,255,0)');
+      g.addColorStop(1, `rgba(130,210,255,${0.18 + pulse * 0.12})`);
+      circle(p.dx, p.dy, r + 16, g, `rgba(170,230,255,${0.45 + pulse * 0.35})`, 2);
+    }
     if (p.hp < p.maxHp) hpBar(p.dx, p.dy + r + 10, 52, p.hp / p.maxHp, '#7ed957');
   }
 
@@ -1202,12 +1325,16 @@
     const self = players.get(myId);
     if (!self || me.dead || !me.stats.ranged || selected !== 0 || invOpen || charOpen || forgeOpen || buildOpen) return;
     const r = cfg.PLAYER.radius + 14, len = me.stats.range;
+    const pr = cfg.EQUIPMENT[me.eq.weapon].projectile, spread = pr.pellets > 1 ? pr.spread : 0;
     ctx.setLineDash([10, 12]);
-    ctx.strokeStyle = (me.res.arrow || 0) > 0 ? 'rgba(255,255,255,0.3)' : 'rgba(255,90,90,0.3)';
+    ctx.strokeStyle = (me.res[me.ammo] || 0) > 0 ? 'rgba(255,255,255,0.3)' : 'rgba(255,90,90,0.3)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(self.dx + Math.cos(myAngle) * r, self.dy + Math.sin(myAngle) * r);
-    ctx.lineTo(self.dx + Math.cos(myAngle) * len, self.dy + Math.sin(myAngle) * len);
+    for (const da of spread ? [-spread, spread] : [0]) {
+      const a = myAngle + da;
+      ctx.moveTo(self.dx + Math.cos(a) * r, self.dy + Math.sin(a) * r);
+      ctx.lineTo(self.dx + Math.cos(a) * len, self.dy + Math.sin(a) * len);
+    }
     ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -1280,10 +1407,12 @@
   function fmtStats(def) {
     const st = def.stats;
     if (def.slot === 'weapon') {
-      const parts = [`${st.damage} Schaden`, `${st.attackSpeed || +(1 / cfg.PLAYER.attackCooldown).toFixed(1)}/s`];
+      const pellets = def.projectile && def.projectile.pellets;
+      const parts = [pellets ? `${pellets}×${st.damage} Schaden` : `${st.damage} Schaden`, `${st.attackSpeed || +(1 / cfg.PLAYER.attackCooldown).toFixed(1)}/s`];
       if (st.range) parts.push(`Weite ${st.range}`);
       else parts.push(`Reichw. ${st.reach || cfg.PLAYER.reach}`);
-      parts.push(st.gather ? `×${st.gather} Abbau` : 'kein Abbau');
+      if (def.ammo) parts.push(cfg.AMMO[def.ammo].label);
+      else parts.push(st.gather ? `×${st.gather} Abbau` : 'kein Abbau');
       return parts.join(' · ');
     }
     return Object.entries(st).map(([k, v]) => `${v > 0 ? '+' : ''}${v} ${STAT_LABELS[k] || k}`).join(' · ');
@@ -1292,6 +1421,7 @@
   // Waffe entlang der +x-Achse ab Ursprung (Griff). Wird für Icons und in der Hand benutzt.
   function drawWeapon(def, pull) {
     const c = LEVEL_COLORS[def.tier], d = LEVEL_DARK[def.tier];
+    if (def.kind === 'gun') return drawGun(def.model);
     switch (def.kind) {
       case 'sword':
         rrect(-6, -3, 16, 6, 2, '#6b4524', '#3a2412', 2);
@@ -1338,6 +1468,27 @@
     }
   }
 
+  // Feuerwaffen von oben, Lauf zeigt in +x, Griff bei 0
+  function drawGun(model) {
+    const metal = '#3c4046', dark = '#1e2125', wood = '#7a4f2a';
+    if (model === 'pistol') {
+      rrect(-4, -4, 12, 8, 2, dark);
+      rrect(4, -3.5, 26, 7, 2, metal, dark, 2);
+      rrect(26, -2, 6, 4, 1, dark);
+    } else if (model === 'shotgun') {
+      rrect(-22, -5, 26, 10, 4, wood, '#4a2f17', 2);
+      rrect(2, -5, 18, 10, 2, metal, dark, 2);
+      rrect(18, -4.5, 46, 4, 1.5, '#55595f', dark, 1.5);
+      rrect(18, 0.5, 46, 4, 1.5, '#55595f', dark, 1.5);
+      rrect(26, 4, 16, 4, 1.5, wood);
+    } else {
+      rrect(-26, -4.5, 28, 9, 3, wood, '#4a2f17', 2);
+      rrect(0, -4, 30, 8, 2, metal, dark, 2);
+      rrect(28, -2, 46, 4, 1.5, '#55595f', dark, 1.5);
+      rrect(8, -8, 16, 4, 1.5, dark); // Zielfernrohr
+    }
+  }
+
   // Symbol für ein Ausrüstungsteil (Koordinaten wie drawItemIcon: Mitte 0/0, Größe 40)
   function drawEquipShape(def) {
     if (def.slot === 'weapon') {
@@ -1345,10 +1496,10 @@
       if (def.kind === 'bow') ctx.translate(-6, 0);
       else {
         ctx.rotate(-0.75);
-        const len = { sword: 62, dagger: 34, spear: 110 }[def.kind] || 48;
+        const len = def.kind === 'gun' ? { pistol: 36, shotgun: 86, rifle: 100 }[def.model] : { sword: 62, dagger: 34, spear: 110 }[def.kind] || 48;
         const k = Math.min(1, 46 / len);
         ctx.scale(k, k);
-        ctx.translate(-len / 2, 0);
+        ctx.translate(def.kind === 'gun' && def.model !== 'pistol' ? -len / 2 + 22 : -len / 2, 0);
       }
       drawWeapon(def, 0);
       ctx.restore();
@@ -1435,6 +1586,7 @@
     const st = me.stats, B = cfg.PLAYER;
     rrect(P.x, P.y, P.w, P.h, 14, 'rgba(18,24,14,0.95)', '#4b5d38', 3);
     text('🧍 Charakter', P.x + 18, P.y + 29, { size: 18, bold: true, color: '#f2d27a' });
+    text(`Level ${me.lvl} · ${me.xp}/${me.xpNext} EP${me.sp ? ` · ${me.sp} Skillpunkt(e) [K]` : ''}`, P.x + 160, P.y + 29, { size: 12, color: me.sp ? '#ffd76a' : '#a8b597' });
     text('[C] schließen', P.x + P.w - 18, P.y + 29, { size: 12, color: '#a8b597', align: 'right' });
 
     // Silhouette hinter den Slots
@@ -1477,7 +1629,7 @@
       ['👟', 'Tempo', st.speed, st.speed - B.speed],
       ['⏱', 'Angriffe/s', st.attackSpeed, 0],
       ['✚', 'Regeneration', `${st.regen}/s`, +(st.regen - B.regen).toFixed(1)],
-      st.ranged ? ['🏹', 'Schussweite', `${st.range}  (${me.res.arrow || 0} Pfeile)`, 0] : ['↔', 'Reichweite', st.reach, st.reach - B.reach],
+      st.ranged ? ['🏹', 'Schussweite', `${st.range}  (${me.res[me.ammo] || 0}× ${itemName(me.ammo)})`, 0] : ['↔', 'Reichweite', st.reach, st.reach - B.reach],
       ['⚡', 'Ausdauer', st.stamina, st.stamina - B.stamina],
     ];
     rows.forEach(([icon, label, val, bonus], i) => {
@@ -1758,13 +1910,131 @@
     ctx.drawImage(shadow, 0, 0);
   }
 
+  // ---------- Weltkarte (M) ----------
+
+  // Statischer Teil (Boden, Wege, Seen, Städte) wird nur bei Größenänderung neu gezeichnet
+  function buildMapCache(S) {
+    const px = Math.round(S * dpr);
+    mapCache.width = mapCache.height = px;
+    const g = mapCache.getContext('2d'), k = px / cfg.WORLD_SIZE;
+    g.imageSmoothingEnabled = true;
+    g.drawImage(groundCanvas, 0, 0, world.n, world.n, 0, 0, px, px);
+    g.lineCap = g.lineJoin = 'round';
+    for (const pts of world.roads) {
+      g.beginPath();
+      pts.forEach(([x, y], i) => (i ? g.lineTo(x * k, y * k) : g.moveTo(x * k, y * k)));
+      g.strokeStyle = 'rgba(110,88,55,0.7)';
+      g.lineWidth = Math.max(3, 86 * k);
+      g.stroke();
+      g.strokeStyle = '#b39a6c';
+      g.lineWidth = Math.max(2, 60 * k);
+      g.stroke();
+    }
+    for (const [grow, color] of [[34, '#d2bf88'], [0, '#3c7fb6'], [-40, '#4a8fc6']]) {
+      g.beginPath();
+      for (const [x, y, r] of world.lakes) {
+        if (r + grow <= 0) continue;
+        g.moveTo((x + r + grow) * k, y * k);
+        g.arc(x * k, y * k, (r + grow) * k, 0, TAU);
+      }
+      g.fillStyle = color;
+      g.fill();
+    }
+    for (const c of world.cities) {
+      g.fillStyle = 'rgba(70,62,50,0.75)';
+      for (const [bx, by, bw, bh] of c.buildings) g.fillRect(bx * k, by * k, Math.max(2, bw * k), Math.max(2, bh * k));
+      g.font = `bold ${Math.round(13 * dpr)}px Segoe UI, sans-serif`;
+      g.textAlign = 'center';
+      g.lineWidth = 3 * dpr;
+      g.strokeStyle = 'rgba(0,0,0,0.65)';
+      g.strokeText(c.name, c.x * k, (c.y - c.r) * k - 4 * dpr);
+      g.fillStyle = '#ffe9b0';
+      g.fillText(c.name, c.x * k, (c.y - c.r) * k - 4 * dpr);
+    }
+    mapCache.size = S;
+  }
+
+  function drawWorldMap() {
+    const S = Math.floor(Math.min(W - 80, H - 130)), x = Math.round((W - S) / 2), y = Math.round((H - S) / 2 + 12);
+    const WS = cfg.WORLD_SIZE, k = S / WS;
+    if (mapCache.size !== S || mapCache.width !== Math.round(S * dpr)) buildMapCache(S);
+    const mx = (wx) => x + wx * k, my = (wy) => y + wy * k;
+    ctx.fillStyle = 'rgba(5,8,4,0.6)';
+    ctx.fillRect(0, 0, W, H);
+    rrect(x - 14, y - 46, S + 28, S + 60, 14, 'rgba(18,24,14,0.96)', '#4b5d38', 3);
+    text('🗺️ Weltkarte', x, y - 18, { size: 18, bold: true, color: '#f2d27a' });
+    text('[M] schließen', x + S, y - 18, { size: 12, color: '#a8b597', align: 'right' });
+    ctx.drawImage(mapCache, x, y, S, S);
+
+    // Planquadrate A–J / 1–10
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < 10; i++) {
+      ctx.moveTo(x + (S * i) / 10, y); ctx.lineTo(x + (S * i) / 10, y + S);
+      ctx.moveTo(x, y + (S * i) / 10); ctx.lineTo(x + S, y + (S * i) / 10);
+    }
+    ctx.stroke();
+    for (let i = 0; i < 10; i++) {
+      text('ABCDEFGHIJ'[i], x + (S * (i + 0.5)) / 10, y + 13, { size: 10, bold: true, align: 'center', color: 'rgba(255,255,255,0.45)' });
+      text(String(i + 1), x + 5, y + (S * (i + 0.5)) / 10 + 4, { size: 10, bold: true, color: 'rgba(255,255,255,0.45)' });
+    }
+
+    // Eigene Basis & Schmiede
+    if (me.core) {
+      ctx.beginPath();
+      ctx.arc(mx(me.core[1]), my(me.core[2]), Math.max(5, me.core[4] * k), 0, TAU);
+      ctx.fillStyle = 'rgba(120,200,255,0.3)';
+      ctx.fill();
+      rrect(mx(me.core[1]) - 5, my(me.core[2]) - 5, 10, 10, 2, '#86e6ff', '#0b3a4a', 2);
+    }
+    if (me.forge) rrect(mx(me.forge[1]) - 3.5, my(me.forge[2]) - 3.5, 7, 7, 1.5, '#ff9a3c', '#3a1a00', 1.5);
+    // Gegner aus dem Radar-Umkreis, andere Spieler
+    const e = minimap.e;
+    for (let i = 0; i < e.length; i += 3) circle(mx(e[i] * 10), my(e[i + 1] * 10), e[i + 2] ? 2.5 : 2, e[i + 2] ? '#ff3b3b' : 'rgba(240,170,165,0.8)');
+    const pp = minimap.p;
+    for (let i = 0; i < pp.length; i += 2) circle(mx(pp[i] * 10), my(pp[i + 1] * 10), 4, '#ffe08a', '#000', 1.5);
+    // Eigene Position als Pfeil in Blickrichtung, mit pulsierendem Ring
+    const sx = mx(me.x), sy = my(me.y);
+    ctx.beginPath();
+    ctx.arc(sx, sy, 9 + Math.sin(now * 4) * 3, 0, TAU);
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(myAngle);
+    ctx.beginPath();
+    ctx.moveTo(9, 0); ctx.lineTo(-6, -6); ctx.lineTo(-3, 0); ctx.lineTo(-6, 6);
+    ctx.closePath();
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+
+    // Fußzeile: eigenes Planquadrat + Planquadrat unter der Maus
+    const sector = (wx, wy) => 'ABCDEFGHIJ'[Math.min(9, Math.floor(wx / (WS / 10)))] + (Math.min(9, Math.floor(wy / (WS / 10))) + 1);
+    let foot = `Du: ${sector(me.x, me.y)}`;
+    if (inRect(mouse.x, mouse.y, { x, y, w: S, h: S })) {
+      const wx = (mouse.x - x) / k, wy = (mouse.y - y) / k;
+      foot += `  ·  Maus: ${sector(wx, wy)} (${Math.round(Math.hypot(wx - me.x, wy - me.y))} entfernt)`;
+    }
+    text(foot, x + S / 2, y - 18, { size: 12, align: 'center', color: '#cfd8c0' });
+  }
+
   // ---------- HUD ----------
 
+  // HOTBAR_SIZE Item-Slots und dahinter (mit etwas Abstand) der Bau-Button
   function hotbarRects() {
-    const size = 68, gap = 8, n = HOTBAR.length;
-    const total = n * size + (n - 1) * gap;
-    const x0 = W / 2 - total / 2, y = H - size - 34;
-    return HOTBAR.map((_, i) => ({ x: x0 + i * (size + gap), y, w: size, h: size }));
+    const n = cfg ? cfg.HOTBAR_SIZE : 6, size = 60, gap = 6, sep = 18;
+    const total = (n + 1) * size + n * gap + sep;
+    const x0 = Math.round(W / 2 - total / 2), y = H - size - 30;
+    const rects = [];
+    for (let i = 0; i < n; i++) rects.push({ x: x0 + i * (size + gap), y, w: size, h: size });
+    rects.push({ x: x0 + n * (size + gap) + sep, y, w: size, h: size });
+    return rects;
   }
 
   function panel(x, y, w, h) { rrect(x, y, w, h, 10, 'rgba(10,14,8,0.62)', 'rgba(255,255,255,0.08)', 2); }
@@ -1777,22 +2047,41 @@
   }
 
   function drawHotbar() {
-    const [ra, rb] = hotbarRects();
-    const slotBg = (r, active) => rrect(r.x, r.y, r.w, r.h, 10, active ? 'rgba(255,230,140,0.28)' : 'rgba(10,14,8,0.62)',
-      active ? '#ffd76a' : 'rgba(255,255,255,0.12)', active ? 3 : 2);
+    const rects = hotbarRects(), rb = rects[cfg.HOTBAR_SIZE];
+    const slotBg = (r, active, border) => rrect(r.x, r.y, r.w, r.h, 10, active ? 'rgba(255,230,140,0.28)' : 'rgba(10,14,8,0.62)',
+      border || (active ? '#ffd76a' : 'rgba(255,255,255,0.12)'), active ? 3 : 2);
+    const hoverSlot = rects.findIndex((r) => inRect(mouse.x, mouse.y, r));
+    const dragging = drag && drag.slot !== undefined;
 
-    slotBg(ra, selected === 0);
-    ctx.save();
-    ctx.translate(ra.x + ra.w / 2, ra.y + ra.h / 2 - 4);
-    if (me.eq.weapon) drawEquipShape(cfg.EQUIPMENT[me.eq.weapon]);
-    else circle(0, 0, 11, '#f0c8a0', '#8a6a4a', 3);
-    ctx.restore();
-    text('1', ra.x + 7, ra.y + 16, { size: 12, color: '#ddd', bold: true });
-    text(me.eq.weapon ? itemName(me.eq.weapon) : 'Faust', ra.x + ra.w / 2, ra.y + ra.h - 6, { size: 11, align: 'center' });
-    if (me.stats.ranged) {
-      const n = me.res.arrow || 0;
-      text(`${n} 🏹`, ra.x + ra.w - 5, ra.y + 16, { size: 11, bold: true, align: 'right', color: n ? '#fff' : '#ff8a7a' });
+    for (let i = 0; i < cfg.HOTBAR_SIZE; i++) {
+      const r = rects[i], item = me.hb[i];
+      const def = item && cfg.EQUIPMENT[item];
+      const equipped = def && me.eq[def.slot] === item;
+      const count = item ? me.res[item] || 0 : 0;
+      const usable = item && (equipped || count > 0);
+      // Aktiver Slot = ausgerüstete Waffe bzw. gewählte Munition
+      const active = !!item && selected === 0 && (equipped && def.slot === 'weapon' || item === me.ammo);
+      slotBg(r, active, dragging && hoverSlot === i ? '#9fe870' : equipped ? '#9fe870' : null);
+      text(String(i + 1), r.x + 6, r.y + 15, { size: 11, color: '#ddd', bold: true });
+      if (!item) continue;
+      ctx.globalAlpha = usable ? 1 : 0.35;
+      drawItemIcon(item, r.x + r.w / 2, r.y + r.h / 2 - 3, 36);
+      ctx.globalAlpha = 1;
+      if (!def) text(String(count), r.x + r.w - 5, r.y + r.h - 6, { size: 12, bold: true, align: 'right', color: count ? '#fff' : '#ff8a7a' });
+      else if (equipped) text('E', r.x + r.w - 6, r.y + 15, { size: 11, bold: true, align: 'right', color: '#9fe870' });
+      // Fernwaffe: Munitionsvorrat in der Ecke
+      if (equipped && def.ammo) {
+        const n = me.res[me.ammo] || 0;
+        text(String(n), r.x + r.w - 5, r.y + r.h - 6, { size: 11, bold: true, align: 'right', color: n ? '#fff' : '#ff8a7a' });
+        drawItemIcon(me.ammo, r.x + 12, r.y + r.h - 11, 13);
+      }
+      if (hoverSlot === i && !drag) text(itemName(item), r.x + r.w / 2, r.y - 8, { size: 12, bold: true, align: 'center' });
     }
+    if (me.stats.ranged) {
+      const kinds = cfg.AMMO[me.stats.ammo].types.filter((t) => (me.res[t.item] || 0) > 0).length;
+      if (kinds > 1) text(`[R] ${itemName(me.ammo)}`, rects[0].x, rects[0].y - 26, { size: 11, bold: true, color: '#ffd76a' });
+    }
+    if (invOpen) text('Item auf einen Slot ziehen oder mit Maus drauf 1–6 drücken · Rechtsklick leert', W / 2, rects[0].y - 40, { size: 11, align: 'center', color: '#cfd8c0' });
 
     slotBg(rb, selected === 1 || buildOpen);
     ctx.save();
@@ -1809,12 +2098,59 @@
       rrect(-14, -22, 28, 12, 3, '#9aa1a8', '#5c6268', 3);
     }
     ctx.restore();
-    text('2', rb.x + 7, rb.y + 16, { size: 12, color: '#ddd', bold: true });
+    text('B', rb.x + 6, rb.y + 15, { size: 11, color: '#ddd', bold: true });
     text(buildType ? cfg.STRUCTURES[buildType].name : 'Bauen', rb.x + rb.w / 2, rb.y + rb.h - 6, { size: 11, align: 'center' });
-    text('[B] Baumenü', rb.x + rb.w + 10, rb.y + rb.h / 2 + 5, { size: 12, color: '#cfd8c0' });
+
     if (buildType) {
       const cost = cfg.STRUCTURES[buildType].levels[0].cost;
       text(fmtCost(cost), rb.x + rb.w / 2, rb.y + rb.h + 15, { size: 11, color: canAfford(cost) ? '#e8e8e8' : '#ff8a7a', align: 'center' });
+    }
+    drawXpBar(rects);
+  }
+
+  // EP-Leiste direkt über der Hotbar
+  function drawXpBar(rects) {
+    const x = rects[0].x, w = rects[cfg.HOTBAR_SIZE].x + rects[cfg.HOTBAR_SIZE].w - x, y = rects[0].y - 14;
+    const frac = Math.min(1, me.xp / me.xpNext);
+    rrect(x, y, w, 8, 4, 'rgba(0,0,0,0.55)');
+    rrect(x + 1.5, y + 1.5, Math.max(0, (w - 3) * frac), 5, 2.5, '#7fc4ff');
+    text(`Lv ${me.lvl}`, x - 8, y + 8, { size: 13, bold: true, align: 'right', color: '#ffd76a' });
+    text(`${me.xp}/${me.xpNext} EP`, x + w + 8, y + 8, { size: 11, color: '#cfd8c0' });
+    if (me.sp > 0) text(`+${me.sp} Skillpunkt${me.sp > 1 ? 'e' : ''} [K]`, x + w / 2, y - 4, { size: 12, bold: true, align: 'center', color: '#ffd76a' });
+  }
+
+  // ---------- Fertigkeiten (K) ----------
+
+  function skillLayout() {
+    const cols = 2, cw = 330, ch = 78, gap = 10, pad = 18, head = 50;
+    const rows = Math.ceil(cfg.SKILLS.length / cols);
+    const w = pad * 2 + cols * cw + gap, h = head + rows * (ch + gap) + pad;
+    const x = Math.round(W / 2 - w / 2), y = Math.round(Math.max(60, H / 2 - h / 2 - 40));
+    const cards = cfg.SKILLS.map((sk, i) => {
+      const rect = { x: x + pad + (i % cols) * (cw + gap), y: y + head + Math.floor(i / cols) * (ch + gap), w: cw, h: ch };
+      return { id: sk.id, sk, rect, btn: { x: rect.x + rect.w - 44, y: rect.y + rect.h / 2 - 17, w: 34, h: 34 } };
+    });
+    return { panel: { x, y, w, h }, cards };
+  }
+
+  function drawSkills() {
+    const { panel: P, cards } = skillLayout();
+    rrect(P.x, P.y, P.w, P.h, 14, 'rgba(18,24,14,0.96)', '#4b5d38', 3);
+    text('✨ Fertigkeiten', P.x + 18, P.y + 32, { size: 18, bold: true, color: '#f2d27a' });
+    text(`Level ${me.lvl} · ${me.sp} Punkt${me.sp === 1 ? '' : 'e'} frei · [K] schließen`, P.x + P.w - 18, P.y + 32,
+      { size: 13, color: me.sp ? '#ffd76a' : '#a8b597', align: 'right', bold: !!me.sp });
+    for (const { sk, rect: r, btn } of cards) {
+      const rank = me.skills[sk.id] || 0, maxed = rank >= sk.max, can = me.sp > 0 && !maxed;
+      rrect(r.x, r.y, r.w, r.h, 10, 'rgba(0,0,0,0.32)', rank ? 'rgba(159,232,112,0.45)' : 'rgba(255,255,255,0.1)', 2);
+      text(sk.icon, r.x + 26, r.y + 46, { size: 26, align: 'center' });
+      text(sk.name, r.x + 52, r.y + 26, { size: 15, bold: true });
+      text(sk.desc + ' pro Rang', r.x + 52, r.y + 45, { size: 12, color: '#b9c4aa' });
+      for (let k = 0; k < sk.max; k++) {
+        rrect(r.x + 52 + k * 22, r.y + 56, 18, 8, 3, k < rank ? '#9fe870' : 'rgba(255,255,255,0.12)');
+      }
+      const hover = inRect(mouse.x, mouse.y, btn);
+      rrect(btn.x, btn.y, btn.w, btn.h, 8, can ? (hover ? '#92c453' : '#7fae45') : 'rgba(255,255,255,0.08)', can ? '#5a8130' : 'rgba(255,255,255,0.1)', 2);
+      text(maxed ? '✓' : '+', btn.x + btn.w / 2, btn.y + 25, { size: 20, bold: true, align: 'center', color: can ? '#13200a' : maxed ? '#9fe870' : '#777' });
     }
   }
 
@@ -1909,11 +2245,22 @@
     text(`${night ? '🌙 Nacht' : '☀️ Tag'} ${day}`, W / 2, 38, { size: 17, bold: true, align: 'center', color: night ? '#a9b8ff' : '#ffe08a' });
     rrect(W / 2 - 110, 46, 220, 8, 4, 'rgba(255,255,255,0.12)');
     rrect(W / 2 - 110, 46, 220 * prog, 8, 4, night ? '#6f7fe0' : '#f5c84a');
+    let toastY = 96;
+    const mmss = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    const badge = me.prot > 0 ? [`🛡 Spawnschutz – noch ${mmss(me.prot)}`, 'rgba(40,90,130,0.85)', '#cfeeff']
+      : me.calm > 0 ? [`🌙 Ruhige erste Nacht – keine Horde (${mmss(me.calm)})`, 'rgba(50,50,100,0.85)', '#d6d9ff'] : null;
+    if (badge) {
+      ctx.font = 'bold 13px Segoe UI, sans-serif';
+      const bw = ctx.measureText(badge[0]).width + 24;
+      rrect(W / 2 - bw / 2, 72, bw, 24, 12, badge[1], 'rgba(255,255,255,0.25)', 1.5);
+      text(badge[0], W / 2, 89, { size: 13, bold: true, align: 'center', color: badge[2] });
+      toastY = 122;
+    }
 
     // Toasts
     toasts.forEach((t, i) => {
       ctx.globalAlpha = Math.min(1, t.life);
-      text(t.text, W / 2, 96 + i * 26, { size: 17, bold: true, align: 'center', color: '#fff' });
+      text(t.text, W / 2, toastY + i * 26, { size: 17, bold: true, align: 'center', color: '#fff' });
       ctx.globalAlpha = 1;
     });
 
@@ -1952,7 +2299,7 @@
 
     if (!me.core && !me.dead) {
       const hint = selected === 1 && buildType === 'core' ? 'Klicke auf einen freien Platz, um deine Basis zu gründen' : 'Öffne das Baumenü [B] und platziere deinen Basis-Kern';
-      text(hint, W / 2, H - 132, { size: 17, bold: true, align: 'center', color: '#ffe08a' });
+      text(hint, W / 2, H - 150, { size: 17, bold: true, align: 'center', color: '#ffe08a' });
     }
     if (hovered) drawTooltip(hovered);
     if (invOpen && !me.dead) drawInventory();
@@ -1964,6 +2311,8 @@
     }
     if (forgeOpen && !me.dead) drawForge();
     if (buildOpen && !me.dead) drawBuildMenu();
+    if (skillOpen && !me.dead) drawSkills();
+    if (mapOpen) drawWorldMap();
 
     if (me.dead) {
       ctx.fillStyle = 'rgba(40,0,0,0.45)';
@@ -2039,6 +2388,7 @@
     ctx.fillText('●', x + 8, y + size - 8);
     ctx.fillStyle = '#ffe08a';
     ctx.fillText('●', x + 8 + ctx.measureText('● Feind  ').width, y + size - 8);
+    text('[M] Karte', x + size - 8, y + size - 8, { size: 10, color: 'rgba(255,255,255,0.55)', align: 'right' });
   }
 
   function drawTooltip(s) {
@@ -2112,7 +2462,7 @@
     const wm = screenToWorld(mouse.x, mouse.y);
     hovered = null;
     const overUi = hotbarRects().some((r) => inRect(mouse.x, mouse.y, r)) ||
-      (invOpen && inRect(mouse.x, mouse.y, invLayout().panel)) || (forgeOpen && inRect(mouse.x, mouse.y, forgeLayout().panel)) || (charOpen && inRect(mouse.x, mouse.y, charLayout().panel)) || (buildOpen && inRect(mouse.x, mouse.y, buildLayout().panel));
+      (invOpen && inRect(mouse.x, mouse.y, invLayout().panel)) || (forgeOpen && inRect(mouse.x, mouse.y, forgeLayout().panel)) || (skillOpen && inRect(mouse.x, mouse.y, skillLayout().panel)) || (charOpen && inRect(mouse.x, mouse.y, charLayout().panel)) || (buildOpen && inRect(mouse.x, mouse.y, buildLayout().panel));
     if (!overUi && !drag) {
       for (const s of structs.values()) {
         const h = (cfg.STRUCTURES[s.type].size * cfg.TILE) / 2;
@@ -2159,13 +2509,48 @@
     for (const p of players.values()) drawPlayer(p);
     drawStaminaRing();
     drawAimLine();
-    for (const [bx, by, ba] of projectiles) {
+    for (const [bx, by, ba, look] of projectiles) {
       ctx.save();
       ctx.translate(bx, by);
       ctx.rotate(ba);
-      rrect(-10, -2.5, 20, 5, 2, '#3a2a1a');
+      if (look === 1) {
+        // Kugel mit Leuchtspur
+        const gr = ctx.createLinearGradient(-26, 0, 4, 0);
+        gr.addColorStop(0, 'rgba(255,220,120,0)');
+        gr.addColorStop(1, 'rgba(255,240,180,0.95)');
+        ctx.fillStyle = gr;
+        ctx.fillRect(-26, -1.5, 30, 3);
+        circle(3, 0, 2.5, '#fff6d0');
+      } else {
+        // Pfeil: Schaft, Spitze je nach Typ, Federn
+        const [tip, tipDark] = ARROW_TIPS[look] || ARROW_TIPS[0];
+        rrect(-12, -1.5, 20, 3, 1.5, '#8a6236');
+        ctx.beginPath();
+        ctx.moveTo(6, -4); ctx.lineTo(13, 0); ctx.lineTo(6, 4);
+        ctx.closePath();
+        ctx.fillStyle = tip; ctx.fill();
+        ctx.strokeStyle = tipDark; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = '#e8e2d0';
+        ctx.fillRect(-13, -3.5, 5, 2.5);
+        ctx.fillRect(-13, 1, 5, 2.5);
+      }
       ctx.restore();
     }
+    for (let i = flashes.length - 1; i >= 0; i--) {
+      const fl = flashes[i], t = (now - fl.t) / 0.08;
+      if (t > 1) { flashes.splice(i, 1); continue; }
+      ctx.save();
+      ctx.translate(fl.x, fl.y);
+      ctx.rotate(fl.a);
+      ctx.globalAlpha = 1 - t;
+      ctx.beginPath();
+      ctx.moveTo(-2, -7); ctx.lineTo(22, 0); ctx.lineTo(-2, 7); ctx.closePath();
+      ctx.fillStyle = '#ffd25a';
+      ctx.fill();
+      circle(2, 0, 7, '#fff3c0');
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
     for (const r of resources) if (r.type === 'tree' && visible(r.x, r.y, r.r)) drawTree(r);
     for (const r of resources) if (visible(r.x, r.y, r.r)) drawResBar(r);
     if (forgeOpen && !nearForge()) forgeOpen = false;
@@ -2193,7 +2578,8 @@
     ctx.globalAlpha = 1;
     for (const f of floats) {
       ctx.globalAlpha = Math.min(1, f.life * 2);
-      ctx.font = 'bold 18px Segoe UI, sans-serif';
+      const pop = f.dmg ? 1 + Math.max(0, 0.12 - (now - f.born)) * 5 : 1;
+      ctx.font = `bold ${Math.round((f.big ? 30 : f.dmg ? 20 : 18) * pop)}px Segoe UI, sans-serif`;
       ctx.textAlign = 'center';
       ctx.lineWidth = 4;
       ctx.strokeStyle = 'rgba(0,0,0,0.6)';
