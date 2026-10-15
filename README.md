@@ -42,6 +42,7 @@ und bei jedem Neustart/Deploy beginnt die Welt von vorn (der Spielstand liegt nu
 - Waffen und Kleidung sind **einzelne Items**: per Drag & Drop oder Rechtsklick an- und ablegen, aus dem Fenster ziehen = droppen. Ohne Waffe kämpft man mit der Faust
 - Rüstung reduziert Schaden um `Rüstung / (Rüstung + 50)`. Werte & Rezepte stehen in `EQUIPMENT` in `server/config.js`
 - Kern zerstört = ganze Basis weg
+- **Schatten**: Tagsüber werfen Bäume, Steine, Gebäude, Spieler und Tiere Sonnenschatten, die mit der Tageszeit wandern. Nachts verdecken Hindernisse das Licht von Spielern, Kernen, Türmen und Schmiede (Fenster lassen Licht durch)
 - **Minimap**: Radar um den Spieler. Rot = feindlich, Rosa = friedliches Tier, Gelb = Spieler
 
 ## Gegner

@@ -3,8 +3,12 @@
 
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
-  const shadow = document.createElement('canvas');
+  const shadow = document.createElement('canvas'); // Nacht-Dunkelheit
   const sctx = shadow.getContext('2d');
+  const sunCanvas = document.createElement('canvas'); // Sonnenschatten (einfarbig, dann halbtransparent drüber)
+  const sunCtx = sunCanvas.getContext('2d');
+  const lightCanvas = document.createElement('canvas'); // eine Lichtquelle samt ihrer Schatten
+  const lctx = lightCanvas.getContext('2d');
   const menu = document.getElementById('menu');
   const nameInput = document.getElementById('name');
   const playBtn = document.getElementById('play');
@@ -48,8 +52,8 @@
     dpr = window.devicePixelRatio || 1;
     W = Math.max(1, innerWidth); // nie 0: ein 0-px-Canvas lässt drawImage() werfen
     H = Math.max(1, innerHeight);
-    canvas.width = shadow.width = Math.round(W * dpr);
-    canvas.height = shadow.height = Math.round(H * dpr);
+    canvas.width = shadow.width = sunCanvas.width = Math.round(W * dpr);
+    canvas.height = shadow.height = sunCanvas.height = Math.round(H * dpr);
     canvas.style.width = W + 'px';
     canvas.style.height = H + 'px';
     const vw = cfg ? cfg.VIEW.w : 1600, vh = cfg ? cfg.VIEW.h : 900;
@@ -631,9 +635,6 @@
     ctx.save();
     ctx.translate(r.x + o, r.y);
     ctx.scale(k, k);
-    poly(r.pts, 1.05);
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    ctx.fill();
     poly(r.pts);
     ctx.fillStyle = r.type === 'gold' ? '#7a7166' : '#8b9196';
     ctx.fill();
@@ -657,7 +658,6 @@
     ctx.save();
     ctx.translate(r.x + o, r.y);
     ctx.scale(k, k);
-    circle(4, 6, r.r, 'rgba(0,0,0,0.2)');
     circle(0, 0, r.r, '#2e6b2b', '#21501f', 5);
     circle(-r.r * 0.12, -r.r * 0.12, r.r * 0.72, '#3b8535');
     circle(-r.r * 0.22, -r.r * 0.22, r.r * 0.42, '#4b9c41');
@@ -1386,6 +1386,130 @@
     }
   }
 
+  // ---------- Schatten ----------
+
+  // Wie "hoch" Objekte sind (bestimmt die Länge der Sonnenschatten).
+  // Ressourcen relativ zum Radius, Gebäude in Welteinheiten.
+  const RES_HEIGHT = { tree: 1.5, rock: 0.55, gold: 0.5 };
+  const STRUCT_HEIGHT = { core: 60, wall: 42, door: 30, window: 42, spike: 10, turret: 55, mine: 28, forge: 38 };
+
+  // Sonnenstand aus der Tageszeit: morgens Schatten lang nach Westen,
+  // mittags kurz nach Norden, abends lang nach Osten. Nachts keine Sonne.
+  function sunState() {
+    const [, night, p] = tm;
+    if (night) return null;
+    const fade = Math.min(1, p / 0.05) * Math.min(1, (1 - p) / 0.1);
+    if (fade <= 0.01) return null;
+    const a = Math.PI + p * Math.PI;
+    const len = Math.min(1.8, 0.5 / (Math.sin(Math.PI * p) + 0.25));
+    return { dx: Math.cos(a) * len, dy: Math.sin(a) * len, alpha: 0.3 * fade };
+  }
+
+  // Konvexe Hülle (Monotone Chain) für den Schatten eines Quaders
+  function convexHull(pts) {
+    pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const lower = [], upper = [];
+    for (const p of pts) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+      lower.push(p);
+    }
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const p = pts[i];
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+      upper.push(p);
+    }
+    return lower.slice(0, -1).concat(upper.slice(0, -1));
+  }
+
+  // Alle Sonnenschatten erst deckend auf eine eigene Ebene, dann halbtransparent auf den Boden –
+  // so werden sich überlappende Schatten nicht doppelt dunkel.
+  function drawSunShadows(x0, y0, x1, y1) {
+    const sun = sunState();
+    if (!sun || !sunCanvas.width) return;
+    const g = sunCtx;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, sunCanvas.width, sunCanvas.height);
+    g.setTransform(ctx.getTransform());
+    g.fillStyle = g.strokeStyle = '#000';
+    g.lineCap = 'round';
+    const m = 160;
+    const vis = (x, y, r) => x > x0 - m - r && x < x1 + m + r && y > y0 - m - r && y < y1 + m + r;
+    // Rundes Objekt: Kreis, der entlang des Sonnenvektors gezogen wird (= dicke Linie mit runden Enden)
+    const capsule = (x, y, r, h) => {
+      g.lineWidth = r * 2;
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + sun.dx * h + 0.01, y + sun.dy * h);
+      g.stroke();
+    };
+    for (const r of resources) {
+      if (!vis(r.x, r.y, r.r)) continue;
+      const rr = r.r * resScale(r);
+      capsule(r.x, r.y, rr * 0.88, rr * RES_HEIGHT[r.type]);
+    }
+    for (const s of structs.values()) {
+      if (!vis(s.x, s.y, 60)) continue;
+      const h = (cfg.STRUCTURES[s.type].size * cfg.TILE) / 2 - 3, len = STRUCT_HEIGHT[s.type] || 30;
+      const ox = sun.dx * len, oy = sun.dy * len, pts = [];
+      for (const [cx, cy] of [[-h, -h], [h, -h], [h, h], [-h, h]]) {
+        pts.push([s.x + cx, s.y + cy], [s.x + cx + ox, s.y + cy + oy]);
+      }
+      const hull = convexHull(pts);
+      g.beginPath();
+      hull.forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py)));
+      g.closePath();
+      g.fill();
+    }
+    for (const z of zombies.values()) {
+      if (vis(z.dx, z.dy, 40)) { const r = cfg.ENEMIES[z.type].r; capsule(z.dx, z.dy, r * 0.85, r * 1.1); }
+    }
+    const pr = cfg.PLAYER.radius;
+    for (const p of players.values()) if (vis(p.dx, p.dy, 40)) capsule(p.dx, p.dy, pr * 0.85, 32);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = sun.alpha;
+    ctx.drawImage(sunCanvas, 0, 0);
+    ctx.restore();
+  }
+
+  // Schattenpolygone (Weltkoordinaten), die Hindernisse für eine Punktlichtquelle werfen.
+  // Fenster lassen Licht durch, die Quelle selbst wirft keinen Schatten.
+  function lightShadows(lx, ly, R, source) {
+    const out = [], far = R * 3;
+    const ray = (x, y) => {
+      const a = Math.atan2(y - ly, x - lx);
+      return [lx + Math.cos(a) * far, ly + Math.sin(a) * far];
+    };
+    for (const r of resources) {
+      const rr = r.r * resScale(r) * 0.9, dx = r.x - lx, dy = r.y - ly, d = Math.hypot(dx, dy);
+      if (d > R + rr || d <= rr + 2) continue;
+      // Tangenten vom Licht an den Kreis
+      const th = Math.atan2(dy, dx), al = Math.asin(rr / d), t = Math.sqrt(d * d - rr * rr);
+      const t1 = [lx + Math.cos(th - al) * t, ly + Math.sin(th - al) * t];
+      const t2 = [lx + Math.cos(th + al) * t, ly + Math.sin(th + al) * t];
+      out.push([t1, ray(...t1), ray(...t2), t2]);
+    }
+    for (const s of structs.values()) {
+      if (s === source || cfg.STRUCTURES[s.type].shootThrough) continue;
+      const h = (cfg.STRUCTURES[s.type].size * cfg.TILE) / 2 - 2;
+      if (Math.abs(s.x - lx) > R + h || Math.abs(s.y - ly) > R + h) continue;
+      if (Math.abs(s.x - lx) < h && Math.abs(s.y - ly) < h) continue; // Licht steht im Gebäude
+      // Silhouette: die beiden Ecken mit kleinstem/größtem Winkel (relativ zur Richtung zur Mitte)
+      const base = Math.atan2(s.y - ly, s.x - lx);
+      let lo = null, hi = null, loA = Infinity, hiA = -Infinity;
+      for (const [cx, cy] of [[-h, -h], [h, -h], [h, h], [-h, h]]) {
+        const px = s.x + cx, py = s.y + cy;
+        let a = Math.atan2(py - ly, px - lx) - base;
+        a = Math.atan2(Math.sin(a), Math.cos(a));
+        if (a < loA) { loA = a; lo = [px, py]; }
+        if (a > hiA) { hiA = a; hi = [px, py]; }
+      }
+      out.push([lo, ray(...lo), ray(...hi), hi]);
+    }
+    return out;
+  }
+
   function drawLighting() {
     const dark = darkness();
     if (dark < 0.01 || !shadow.width || !shadow.height) return;
@@ -1395,21 +1519,37 @@
     sctx.fillStyle = `rgba(6,10,32,${dark})`;
     sctx.fillRect(0, 0, shadow.width, shadow.height);
     sctx.globalCompositeOperation = 'destination-out';
-    const light = (wx, wy, wr) => {
-      const p = worldToScreen(wx, wy), r = wr * scale * dpr, x = p.x * dpr, y = p.y * dpr;
+    // Jede Lichtquelle wird einzeln gerendert: Lichtkegel minus Schatten der Hindernisse,
+    // dann aus der Dunkelheit herausgeschnitten.
+    const light = (wx, wy, wr, source) => {
+      const p = worldToScreen(wx, wy), s = scale * dpr, r = Math.ceil(wr * s), x = p.x * dpr, y = p.y * dpr;
       if (x < -r || y < -r || x > shadow.width + r || y > shadow.height + r) return;
-      const g = sctx.createRadialGradient(x, y, 0, x, y, r);
+      if (lightCanvas.width < r * 2 || lightCanvas.height < r * 2) lightCanvas.width = lightCanvas.height = r * 2;
+      lctx.setTransform(1, 0, 0, 1, 0, 0);
+      lctx.globalCompositeOperation = 'source-over';
+      lctx.clearRect(0, 0, r * 2, r * 2);
+      const g = lctx.createRadialGradient(r, r, 0, r, r, r);
       g.addColorStop(0, 'rgba(0,0,0,1)');
       g.addColorStop(0.5, 'rgba(0,0,0,0.75)');
       g.addColorStop(1, 'rgba(0,0,0,0)');
-      sctx.fillStyle = g;
-      sctx.fillRect(x - r, y - r, r * 2, r * 2);
+      lctx.fillStyle = g;
+      lctx.fillRect(0, 0, r * 2, r * 2);
+      lctx.globalCompositeOperation = 'destination-out';
+      lctx.setTransform(s, 0, 0, s, r - wx * s, r - wy * s);
+      lctx.fillStyle = '#000';
+      for (const poly of lightShadows(wx, wy, wr, source)) {
+        lctx.beginPath();
+        poly.forEach(([px, py], i) => (i ? lctx.lineTo(px, py) : lctx.moveTo(px, py)));
+        lctx.closePath();
+        lctx.fill();
+      }
+      sctx.drawImage(lightCanvas, 0, 0, r * 2, r * 2, x - r, y - r, r * 2, r * 2);
     };
-    for (const p of players.values()) light(p.dx, p.dy, 260);
+    for (const p of players.values()) light(p.dx, p.dy, 260, null);
     for (const s of structs.values()) {
-      if (s.type === 'core') light(s.x, s.y, 240 + s.level * 30);
-      else if (s.type === 'turret') light(s.x, s.y, 110);
-      else if (s.type === 'forge') light(s.x, s.y, 140);
+      if (s.type === 'core') light(s.x, s.y, 240 + s.level * 30, s);
+      else if (s.type === 'turret') light(s.x, s.y, 110, s);
+      else if (s.type === 'forge') light(s.x, s.y, 140, s);
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(shadow, 0, 0);
@@ -1778,6 +1918,7 @@
     const visible = (x, y, m) => x > x0 - m && x < x1 + m && y > y0 - m && y < y1 + m;
 
     drawGround(x0, y0, x1, y1);
+    drawSunShadows(x0, y0, x1, y1);
     drawBaseZone();
     for (const r of resources) if (r.type !== 'tree' && visible(r.x, r.y, r.r)) drawRock(r);
     for (const s of structs.values()) drawStruct(s);
