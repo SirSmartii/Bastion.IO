@@ -2,41 +2,26 @@
 // und Sichtschatten: was die eigene Figur hinter Deckung nicht sehen kann.
 
 import { ctx, cfg, me, myId, clock, players, zombies, structs, dpr, scale, worldToScreen } from '../state.js';
-import { RES_HEIGHT, RUIN_HEIGHT, STRUCT_HEIGHT } from '../constants.js';
+import { RES_HEIGHT, RUIN_HEIGHT, STRUCT_HEIGHT, TREE_TYPES } from '../constants.js';
 import { resourcesIn, ruinsIn, resScale } from '../world.js';
 import { structSize } from '../rules.js';
 
-const sunCanvas = document.createElement('canvas'); // Sonnenschatten (einfarbig, dann halbtransparent drüber)
-const sunCtx = sunCanvas.getContext('2d');
 const darkCanvas = document.createElement('canvas'); // Nacht-Dunkelheit mit ausgeschnittenen Lichtern
 const darkCtx = darkCanvas.getContext('2d');
 const lightCanvas = document.createElement('canvas'); // eine Lichtquelle samt ihrer Schatten
 const lightCtx = lightCanvas.getContext('2d');
-const sightCanvas = document.createElement('canvas'); // Sichtschatten (deckend, dann halbtransparent drüber)
-const sightCtx = sightCanvas.getContext('2d');
 
-// Sonnen-, Sicht- und Nachtschatten werden in geringerer Auflösung gezeichnet und dann hochskaliert:
-// Die Kanten werden etwas weicher (sieht eher besser aus), aber es sind nur ein Bruchteil der Pixel –
-// in voller Auflösung kosteten die großen, sich überlappenden Schattenflächen auf schwächeren
-// Grafikchips je ~9 ms pro Bild.
+// Sonnen- und Sichtschatten kommen direkt auf die Zeichenfläche: alle Formen in einem einzigen Pfad,
+// einmal gefüllt – Überlappungen werden so nicht doppelt dunkel (Regel "nonzero", alle Teilpfade laufen
+// gleich herum), und es braucht keine eigene Ebene, die jedes Bild über den ganzen Bildschirm geblendet
+// werden müsste (das kostete ohne Grafikbeschleunigung, z. B. oft in Firefox, ~6 ms pro Ebene).
+// Nur die Nacht braucht eine Ebene (weiche Lichtkegel); sie wird in geringerer Auflösung gezeichnet.
 const LAYER_RES = 0.5; // Anteil der CSS-Auflösung
-let layerKx = 1, layerKy = 1; // Ebenen-Pixel pro Bildschirm-Pixel
 
 export function resizeLighting(width, height) {
   const k = Math.min(1, LAYER_RES / dpr);
-  sunCanvas.width = sightCanvas.width = darkCanvas.width = Math.max(1, Math.ceil(width * k));
-  sunCanvas.height = sightCanvas.height = darkCanvas.height = Math.max(1, Math.ceil(height * k));
-  layerKx = sunCanvas.width / width;
-  layerKy = sunCanvas.height / height;
-}
-
-// Ebene leeren und auf Weltkoordinaten einstellen (wie die Hauptzeichenfläche, nur kleiner)
-function beginLayer(g) {
-  g.setTransform(1, 0, 0, 1, 0, 0);
-  g.globalCompositeOperation = 'source-over';
-  g.clearRect(0, 0, g.canvas.width, g.canvas.height);
-  const m = ctx.getTransform();
-  g.setTransform(m.a * layerKx, 0, 0, m.d * layerKy, m.e * layerKx, m.f * layerKy);
+  darkCanvas.width = Math.max(1, Math.ceil(width * k));
+  darkCanvas.height = Math.max(1, Math.ceil(height * k));
 }
 
 // Ebene halbtransparent über das ganze Bild legen
@@ -45,7 +30,9 @@ function drawLayer(layer, alpha) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = alpha;
   ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
+  // 'low' = bilinear: bei weichen Schattenflächen kein sichtbarer Unterschied. 'high' kostete ohne
+  // Grafikbeschleunigung (Firefox zeichnet Canvas oft in Software) ~10 ms pro Ebene und Bild.
+  ctx.imageSmoothingQuality = 'low';
   ctx.drawImage(layer, 0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.restore();
 }
@@ -144,14 +131,13 @@ function convexHull(points) {
   return lower.slice(0, -1).concat(upper.slice(0, -1));
 }
 
-// Alle Sonnenschatten erst deckend auf eine eigene Ebene, dann halbtransparent auf den Boden –
+// Alle Sonnenschatten halbtransparent in einem einzigen Pfad auf den Boden –
 // so werden sich überlappende Schatten nicht doppelt dunkel.
 export function drawSunShadows({ x0, y0, x1, y1 }) {
   const sun = sunState();
-  if (!sun || !sunCanvas.width) return;
-  const g = sunCtx;
-  beginLayer(g);
-  g.fillStyle = '#000';
+  if (!sun) return;
+  const g = ctx;
+  g.fillStyle = `rgba(0,0,0,${sun.alpha})`;
   const m = 160; // Schatten von knapp außerhalb liegenden Objekten ragen ins Bild
   const near = (x, y, r) => x > x0 - m - r && x < x1 + m + r && y > y0 - m - r && y < y1 + m + r;
   // Alle Schatten kommen in einen einzigen Pfad und werden am Ende auf einmal gefüllt –
@@ -192,8 +178,6 @@ export function drawSunShadows({ x0, y0, x1, y1 }) {
   const pr = cfg.PLAYER.radius;
   for (const p of players.values()) if (near(p.dx, p.dy, 40)) capsule(p.dx, p.dy, pr * 0.85, 32);
   g.fill();
-
-  drawLayer(sunCanvas, sun.alpha);
 }
 
 // ---------- Nacht ----------
@@ -257,8 +241,9 @@ export function drawLighting() {
 
 function cutLight(wx, wy, radius, source) {
   // Alles in Pixeln der (kleineren) Dunkelheits-Ebene
-  const p = worldToScreen(wx, wy), s = scale * dpr * layerKx, r = Math.ceil(radius * s);
-  const x = p.x * dpr * layerKx, y = p.y * dpr * layerKy;
+  const k = darkCanvas.width / ctx.canvas.width; // Ebenen-Pixel pro Bildschirm-Pixel
+  const p = worldToScreen(wx, wy), s = scale * dpr * k, r = Math.ceil(radius * s);
+  const x = p.x * dpr * k, y = p.y * dpr * k;
   if (x < -r || y < -r || x > darkCanvas.width + r || y > darkCanvas.height + r) return; // außerhalb des Bildes
   if (lightCanvas.width < r * 2 || lightCanvas.height < r * 2) lightCanvas.width = lightCanvas.height = r * 2;
   const g = lightCtx;
@@ -286,45 +271,46 @@ function cutLight(wx, wy, radius, source) {
 // Ob ein Hindernis selbst hell (sichtbar) oder dunkel (hinter einem anderen) ist, wechselt nicht hart,
 // sondern gleitet in FADE_TIME Sekunden – sonst flackern Mauern & Ruinen beim Laufen an der Grenze.
 const FADE_TIME = 0.35;
-// Hindernisse werden um so viel kleiner wieder hell ausgeschnitten, wie die hochskalierte Ebene unscharf ist –
-// sonst bliebe ein heller Rand zwischen Hindernis und Schatten
-const CUT_INSET = 3;
+const SIGHT_ALPHA = 0.42; // so dunkel ist der Boden hinter Deckung
 const bodyLight = new Map(); // "x|y" -> { v: Helligkeit 0..1, frame }
 let fadeFrame = 0, lastFadeT = 0;
-//
+let dimmed = null; // Hindernisse, die selbst (teilweise) im Schatten liegen: Map Helligkeit -> [Hindernis]
+
 // Bäume, Felsen, Kisten, Mauern und Ruinen verdecken die Sicht. Der Boden dahinter wird abgedunkelt –
 // dort schickt der Server auch keine fremden Spieler und Gegner (gleiche Formen wie server/game/sight.js).
-// Erst alle Schatten deckend auf eine eigene Ebene (geringe Auflösung), die Hindernisse selbst
-// wieder ausschneiden, dann halbtransparent über die Welt.
+// Reihenfolge in main.js: erst alles, was die Sicht nicht verdeckt, dann diese Schatten, dann die
+// Hindernisse selbst (die so hell bleiben) und zuletzt dimHiddenObstacles() für verdeckte Hindernisse.
 export function drawSightShadows({ x0, y0, x1, y1 }) {
+  dimmed = null;
   const self = players.get(myId);
-  if (!self || me.dead || !sightCanvas.width) return;
+  if (!self || me.dead) return;
   const ex = self.dx, ey = self.dy;
   const far = Math.hypot(x1 - x0, y1 - y0); // weiter als jede Bildecke vom Auge entfernt
 
   // Hindernisse: round = Kreis mit Radius r, sonst Rechteck mit halber Breite hw / Höhe hh
   // (r = kürzere halbe Kante). outer = äußerster Punkt. Gebäude so groß, wie sie gezeichnet werden.
+  // dim = abdunkeln, wenn es selbst verdeckt ist (bei Kreisen: Radius wie gezeichnet; Bäume nicht, die Krone liegt eh darüber)
   const occluders = [];
-  const add = (x, y, hw, hh, round) => {
+  const add = (x, y, hw, hh, round, dim) => {
     const outer = round ? hw : Math.hypot(hw, hh);
-    occluders.push({ x, y, hw, hh, r: Math.min(hw, hh), round, outer, d: Math.hypot(x - ex, y - ey), angle: Math.atan2(y - ey, x - ex) });
+    occluders.push({ x, y, hw, hh, r: Math.min(hw, hh), round, outer, dim, d: Math.hypot(x - ex, y - ey), angle: Math.atan2(y - ey, x - ex) });
   };
   for (const r of resourcesIn(x0, y0, x1, y1)) {
-    const k = cfg.RESOURCES[r.type].sight, rr = r.r * resScale(r) * k;
-    if (k) add(r.x, r.y, rr, rr, true);
+    const k = cfg.RESOURCES[r.type].sight, full = r.r * resScale(r), rr = full * k;
+    if (k) add(r.x, r.y, rr, rr, true, TREE_TYPES.has(r.type) ? 0 : full);
   }
   for (const s of structs.values()) {
     if (!cfg.STRUCTURES[s.type].blocksSight) continue;
     const { hw, hh } = structBox(s);
-    add(s.x, s.y, hw + SEAM, hh + SEAM, false);
+    add(s.x, s.y, hw + SEAM, hh + SEAM, false, 1);
   }
-  for (const { x, y } of ruinsIn(x0 - 30, y0 - 30, x1 + 30, y1 + 30)) add(x, y, cfg.TILE / 2 + SEAM, cfg.TILE / 2 + SEAM, false);
+  for (const { x, y } of ruinsIn(x0 - 30, y0 - 30, x1 + 30, y1 + 30)) add(x, y, cfg.TILE / 2 + SEAM, cfg.TILE / 2 + SEAM, false, 1);
   if (!occluders.length) return;
 
   // Von nah nach fern. Liegt ein Hindernis komplett im Schatten eines näheren, braucht es keinen eigenen
   // Schatten (und bleibt selbst dunkel) – im Wald fällt so ein Großteil der Keile weg.
   occluders.sort((a, b) => a.d - b.d);
-  const casters = [], shown = [];
+  const casters = [], shown = new Set();
   const inShadow = (o) => {
     if (o.d <= o.outer) return false;
     const halfWidth = Math.asin(o.outer / o.d), nearest = o.d - o.outer;
@@ -335,57 +321,51 @@ export function drawSightShadows({ x0, y0, x1, y1 }) {
     });
   };
 
-  const g = sightCtx;
-  beginLayer(g);
-  g.fillStyle = '#000';
-  g.beginPath();
+  ctx.fillStyle = `rgba(0,0,0,${SIGHT_ALPHA})`;
+  ctx.beginPath();
   for (const o of occluders) {
     if (inShadow(o)) continue;
-    shown.push(o);
+    shown.add(o);
     const edge = o.round ? circleEdges(ex, ey, o.x, o.y, o.r) : rectEdges(ex, ey, o.x, o.y, o.hw, o.hh);
     if (!edge) continue; // man steht darin
-    addPolygon(g, shadowWedge(ex, ey, edge[0], edge[1], far));
+    addPolygon(ctx, shadowWedge(ex, ey, edge[0], edge[1], far));
     // Was sicher dahinter liegt: der Kegel des inneren Kreises (bei Rechtecken die kürzere halbe Kante)
     if (o.d > o.r) casters.push({ angle: o.angle, halfWidth: Math.asin(o.r / o.d), farthest: o.d + o.outer });
   }
-  g.fill();
+  ctx.fill();
 
-  // Die sichtbaren Hindernisse selbst werden (weich überblendet) wieder hell ausgeschnitten.
-  // Gleiche Helligkeit = ein gemeinsamer Füllvorgang, damit es bei wenigen Zeichenaufrufen bleibt.
+  // Helligkeit der Hindernisse selbst nachführen (weich überblendet); dunkel werden sie erst in dimHiddenObstacles()
   const t = performance.now(), step = Math.min(1, (t - lastFadeT) / 1000 / FADE_TIME);
   lastFadeT = t;
   fadeFrame++;
-  const visible = new Set(shown), byLight = new Map();
+  dimmed = new Map();
   for (const o of occluders) {
-    const key = o.x + '|' + o.y, target = visible.has(o) ? 1 : 0;
+    const key = o.x + '|' + o.y, target = shown.has(o) ? 1 : 0;
     let state = bodyLight.get(key);
     if (!state) bodyLight.set(key, (state = { v: target })); // neu im Bild: sofort richtig, kein Einblenden
     state.v += Math.max(-step, Math.min(step, target - state.v));
     state.frame = fadeFrame;
     const level = Math.round(state.v * 8) / 8;
-    if (!level) continue;
-    if (!byLight.has(level)) byLight.set(level, []);
-    byLight.get(level).push(o);
+    if (level >= 1 || !o.dim) continue;
+    if (!dimmed.has(level)) dimmed.set(level, []);
+    dimmed.get(level).push(o);
   }
   if (fadeFrame % 120 === 0) for (const [key, state] of bodyLight) if (state.frame !== fadeFrame) bodyLight.delete(key);
+}
 
-  g.globalCompositeOperation = 'destination-out';
-  for (const [level, list] of byLight) {
-    g.globalAlpha = level;
-    g.beginPath();
+// Hindernisse, die hinter anderen liegen, so dunkel wie den Boden dort – gleiche Helligkeit = eine Füllung
+export function dimHiddenObstacles() {
+  if (!dimmed) return;
+  for (const [level, list] of dimmed) {
+    ctx.fillStyle = `rgba(0,0,0,${SIGHT_ALPHA * (1 - level)})`;
+    ctx.beginPath();
     for (const o of list) {
       if (o.round) {
-        const r = Math.max(1, o.r - CUT_INSET);
-        g.moveTo(o.x + r, o.y);
-        g.arc(o.x, o.y, r, 0, Math.PI * 2);
-      } else {
-        const hw = o.hw - SEAM - CUT_INSET, hh = o.hh - SEAM - CUT_INSET;
-        g.rect(o.x - hw, o.y - hh, hw * 2, hh * 2);
-      }
+        ctx.moveTo(o.x + o.dim, o.y);
+        ctx.arc(o.x, o.y, o.dim, 0, Math.PI * 2);
+      } else ctx.rect(o.x - o.hw + SEAM, o.y - o.hh + SEAM, (o.hw - SEAM) * 2, (o.hh - SEAM) * 2);
     }
-    g.fill();
+    ctx.fill();
   }
-  g.globalAlpha = 1;
-
-  drawLayer(sightCanvas, 0.42);
+  dimmed = null;
 }

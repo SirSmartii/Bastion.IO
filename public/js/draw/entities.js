@@ -1,6 +1,6 @@
 // Gebäude, Gegner & Tiere, Spielfiguren, Items am Boden und Geschosse.
 
-import { ctx, cfg, me, myId, now, players, clock, myAngle, ui, mouse, screenToWorld } from '../state.js';
+import { ctx, cfg, me, myId, now, players, clock, myAngle, ui, mouse, screenToWorld, drawInto } from '../state.js';
 import { TAU, LEVEL_COLORS, LEVEL_DARK, ZOMBIE_COLORS, ARMOR_COLORS, ARROW_TIPS } from '../constants.js';
 import { circle, ellipse, rrect, hpBar, outlinedText, wrapText } from './primitives.js';
 import { drawItemIcon, drawWeapon, drawGun } from './items.js';
@@ -253,6 +253,36 @@ function drawEyes(x, y, r, eyes) {
   }
 }
 
+// Fertig gezeichnete Figuren als Bild: Zombies und Schweine sehen ohne Angriff immer gleich aus. In Städten
+// sind es dutzende – ein drawImage statt ~10 Füllungen und Konturen pro Figur entlastet vor allem Firefox.
+// Schlüssel enthält den Maßstab (Pixel pro Welteinheit), damit die Bilder scharf bleiben.
+const sprites = new Map();
+let spriteScale = 0;
+function drawSprite(key, extent, draw) {
+  const m = ctx.getTransform(), k = Math.round(Math.hypot(m.a, m.b) * 100) / 100;
+  if (k !== spriteScale) { sprites.clear(); spriteScale = k; }
+  let c = sprites.get(key);
+  if (!c) {
+    c = document.createElement('canvas');
+    c.width = c.height = Math.ceil(extent * 2 * k) + 2;
+    const g = c.getContext('2d');
+    g.setTransform(k, 0, 0, k, c.width / 2, c.height / 2);
+    drawInto(g, draw);
+    sprites.set(key, c);
+  }
+  const s = c.width / k;
+  ctx.drawImage(c, -s / 2, -s / 2, s, s);
+}
+
+function drawZombieBody(type, r, lunge) {
+  const color = ZOMBIE_COLORS[type];
+  for (const side of [-1, 1]) circle(r * 0.75 + lunge, side * r * 0.62, r * 0.32, color, '#253a19', 3);
+  circle(0, 0, r, color, '#253a19', 4);
+  const eye = clock[1] ? '#ff3b3b' : '#1d1d1d'; // nachts rote Augen
+  circle(r * 0.45, -r * 0.3, r * 0.14, eye);
+  circle(r * 0.45, r * 0.3, r * 0.14, eye);
+}
+
 export function drawZombie(z) {
   const r = z.r || cfg.ENEMIES[z.type].r, t = now - z.swingT;
   const lunge = t < 0.25 ? Math.sin((t / 0.25) * Math.PI) * r * 0.45 : 0; // Vorstoß beim Angriff
@@ -260,16 +290,12 @@ export function drawZombie(z) {
   ctx.translate(z.dx, z.dy);
   ctx.rotate(z.da);
   if (z.type === 'wolf') drawWolf(r, lunge, z.alpha, predatorEyes(z, '#ffd23f'));
-  else if (z.type === 'pig') drawPig(r, lunge, z.aggro);
-  else if (z.type === 'bear') drawBear(r, lunge, predatorEyes(z, '#1d1d1d'));
-  else {
-    const color = ZOMBIE_COLORS[z.type];
-    for (const side of [-1, 1]) circle(r * 0.75 + lunge, side * r * 0.62, r * 0.32, color, '#253a19', 3);
-    circle(0, 0, r, color, '#253a19', 4);
-    const eye = clock[1] ? '#ff3b3b' : '#1d1d1d'; // nachts rote Augen
-    circle(r * 0.45, -r * 0.3, r * 0.14, eye);
-    circle(r * 0.45, r * 0.3, r * 0.14, eye);
-  }
+  else if (z.type === 'pig') {
+    if (lunge) drawPig(r, lunge, z.aggro);
+    else drawSprite(`pig:${r}:${!!z.aggro}`, r * 1.3 + 3, () => drawPig(r, 0, z.aggro));
+  } else if (z.type === 'bear') drawBear(r, lunge, predatorEyes(z, '#1d1d1d'));
+  else if (lunge) drawZombieBody(z.type, r, lunge);
+  else drawSprite(`${z.type}:${r}:${clock[1] ? 1 : 0}`, r * 1.1 + 3, () => drawZombieBody(z.type, r, 0));
   ctx.restore();
   if (z.hp < z.maxHp) hpBar(z.dx, z.dy - r - 14, r * 2, z.hp / z.maxHp, '#e05555');
 }

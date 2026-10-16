@@ -1,14 +1,67 @@
 // Boden, Wege, Städte, Seen, Ruinen, Ressourcen und die Basis-Zone.
 
-import { ctx, cfg, me, now, ui, mouse, screenToWorld } from '../state.js';
+import { ctx, cfg, me, now, ui, mouse, screenToWorld, drawInto } from '../state.js';
 import { TAU, BIOME, ROCK_COLORS, RESOURCE_COLORS } from '../constants.js';
-import { world, groundCanvas, hash2, biomeAt, ruinsIn, resScale } from '../world.js';
+import { world, worldVersion, groundCanvas, hash2, biomeAt, ruinsIn, resScale } from '../world.js';
 import { circle, rrect, poly, hpBar, ellipse } from './primitives.js';
 
 // ---------- Boden ----------
 
-// view = { x0, y0, x1, y1 }: sichtbarer Weltausschnitt
+// Der Boden ändert sich nie (bis auf Wellen und Baugitter). Er wird deshalb in Kacheln von CHUNK × CHUNK
+// Bildschirm-Pixeln einmal gezeichnet und danach nur noch pixelgenau kopiert – das Hochskalieren des
+// Biom-Bilds, die Deko, Wege und Städte kosteten sonst jedes Bild ~7 ms ohne Grafikbeschleunigung
+// (Firefox). Bei anderem Zoom (Fenstergröße) oder neuer Welt werden die Kacheln neu gezeichnet.
+const CHUNK = 256;
+const chunks = new Map(); // "i|j" -> { canvas, used: Bildnummer }
+let chunkKey = '', chunkFrame = 0;
+
+// view = { x0, y0, x1, y1 }: sichtbarer Weltausschnitt. Die Zeichenfläche muss auf ganze Pixel verschoben sein (main.js).
 export function drawGround(view) {
+  const m = ctx.getTransform(), k = m.a, key = `${k}:${worldVersion}`;
+  if (key !== chunkKey) { chunks.clear(); chunkKey = key; }
+  chunkFrame++;
+  // Kacheln im Bild, in Pixeln der Welt (Weltkoordinate × k)
+  const px0 = -m.e, py0 = -m.f, px1 = px0 + ctx.canvas.width, py1 = py0 + ctx.canvas.height;
+  const i0 = Math.floor(px0 / CHUNK), i1 = Math.floor(px1 / CHUNK), j0 = Math.floor(py0 / CHUNK), j1 = Math.floor(py1 / CHUNK);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) ctx.drawImage(groundChunk(i, j, k).canvas, i * CHUNK - px0, j * CHUNK - py0);
+  ctx.restore();
+  // Eine Kachel am Rand schon vorbereiten, damit beim Laufen keine ganze Reihe auf einmal fällig wird
+  prepareOne(i0 - 1, i1 + 1, j0 - 1, j1 + 1, k);
+  if (chunkFrame % 60 === 0) for (const [id, c] of chunks) if (chunkFrame - c.used > 120) chunks.delete(id);
+
+  drawLakeWaves(view);
+  if (ui.selected === 1 && ui.buildType && ui.panel !== 'build' && !me.dead) drawBuildGrid();
+}
+
+let built = 0; // Kacheln, die in diesem Bild neu gezeichnet wurden
+function groundChunk(i, j, k) {
+  const id = i + '|' + j;
+  let c = chunks.get(id);
+  if (!c) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = CHUNK;
+    const g = canvas.getContext('2d');
+    g.setTransform(k, 0, 0, k, -i * CHUNK, -j * CHUNK);
+    const x0 = (i * CHUNK) / k, y0 = (j * CHUNK) / k;
+    drawInto(g, () => drawStaticGround({ x0, y0, x1: x0 + CHUNK / k, y1: y0 + CHUNK / k }));
+    chunks.set(id, (c = { canvas }));
+    built = chunkFrame;
+  }
+  c.used = chunkFrame;
+  return c;
+}
+
+function prepareOne(i0, i1, j0, j1, k) {
+  if (built === chunkFrame) return;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    if (j !== j0 && j !== j1 && i !== i0 && i !== i1) continue; // nur der Ring außen
+    if (!chunks.has(i + '|' + j)) return void groundChunk(i, j, k);
+  }
+}
+
+function drawStaticGround(view) {
   const { x0, y0, x1, y1 } = view, WS = cfg.WORLD_SIZE, G = world.G, n = world.n;
   ctx.fillStyle = '#26321d';
   ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
@@ -19,11 +72,11 @@ export function drawGround(view) {
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(groundCanvas, i0, j0, i1 - i0, j1 - j0, i0 * G, j0 * G, (i1 - i0) * G, (j1 - j0) * G);
   }
-  drawGroundDecor(view);
+  // Deko ragt ein paar Pixel über ihre Zelle hinaus: auch die Zellen gleich neben der Kachel zeichnen
+  drawGroundDecor({ x0: x0 - 8, y0: y0 - 8, x1: x1 + 8, y1: y1 + 8 });
   drawRoads(view);
   drawCities(view);
   drawLakes(view);
-  if (ui.selected === 1 && ui.buildType && ui.panel !== 'build' && !me.dead) drawBuildGrid();
   // Weltrand
   ctx.strokeStyle = 'rgba(0,0,0,0.45)';
   ctx.lineWidth = 10;
@@ -161,7 +214,7 @@ function drawCities({ x0, y0, x1, y1 }) {
   }
 }
 
-// Seen: Sandufer, Wasser, hellere Mitte und langsam wandernde Wellen
+// Seen: Sandufer, Wasser, hellere Mitte
 function drawLakes({ x0, y0, x1, y1 }) {
   const visible = world.lakes.filter(([x, y, r]) => x + r + 40 > x0 && x - r - 40 < x1 && y + r + 40 > y0 && y - r - 40 < y1);
   if (!visible.length) return;
@@ -175,9 +228,14 @@ function drawLakes({ x0, y0, x1, y1 }) {
   layer(6, '#2f6a9c');
   layer(0, '#3c7fb6');
   layer(-40, '#4a8fc6');
+}
+
+// Langsam wandernde Wellen (bewegt, deshalb nicht in den Boden-Kacheln)
+function drawLakeWaves({ x0, y0, x1, y1 }) {
   ctx.strokeStyle = 'rgba(255,255,255,0.18)';
   ctx.lineWidth = 2;
-  for (const [x, y, r] of visible) {
+  for (const [x, y, r] of world.lakes) {
+    if (x + r < x0 || x - r > x1 || y + r < y0 || y - r > y1) continue;
     for (let k = 0; k < 3; k++) {
       const a = hash2(x + k, y) * TAU + now * 0.15, d = r * (0.25 + 0.5 * hash2(y + k, x));
       ctx.beginPath();
@@ -187,20 +245,33 @@ function drawLakes({ x0, y0, x1, y1 }) {
   }
 }
 
-// Ruinenmauern der Städte
+// Ruinenmauern der Städte. In Städten sind es hunderte – deshalb gebündelt: ein Pfad pro Farbe,
+// einer für alle Umrisse und einer für alle Fugen (statt vier Zeichenaufrufen pro Mauerstück).
+const RUIN_COLORS = ['#8a8378', '#817a6e', '#938b7e', '#7a7468'];
 export function drawRuins({ x0, y0, x1, y1 }) {
-  const h = cfg.TILE / 2;
-  const colors = ['#8a8378', '#817a6e', '#938b7e', '#7a7468'];
-  for (const { x, y, variant: v } of ruinsIn(x0 - h, y0 - h, x1 + h, y1 + h)) {
-    rrect(x - h + 1, y - h + 1, h * 2 - 2, h * 2 - 2, 4, colors[v], '#4f4a42', 3);
-    ctx.strokeStyle = 'rgba(60,55,48,0.6)';
-    ctx.lineWidth = 2;
+  const h = cfg.TILE / 2, ruins = ruinsIn(x0 - h, y0 - h, x1 + h, y1 + h);
+  if (!ruins.length) return;
+  const outline = (x, y) => ctx.roundRect(x - h + 1, y - h + 1, h * 2 - 2, h * 2 - 2, 4);
+  RUIN_COLORS.forEach((color, variant) => {
     ctx.beginPath();
+    for (const r of ruins) if (r.variant === variant) outline(r.x, r.y);
+    ctx.fillStyle = color;
+    ctx.fill();
+  });
+  ctx.beginPath();
+  for (const r of ruins) outline(r.x, r.y);
+  ctx.strokeStyle = '#4f4a42';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.beginPath();
+  for (const { x, y, variant: v } of ruins) {
     ctx.moveTo(x - h + 4, y); ctx.lineTo(x + h - 4, y);
     ctx.moveTo(x + (v % 2 ? -6 : 6), y - h + 4); ctx.lineTo(x + (v % 2 ? -6 : 6), y);
     if (v === 3) { ctx.moveTo(x - 10, y + 4); ctx.lineTo(x - 2, y + 14); ctx.lineTo(x + 6, y + 9); }
-    ctx.stroke();
   }
+  ctx.strokeStyle = 'rgba(60,55,48,0.6)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
 // Eigener Bauradius um den Kern

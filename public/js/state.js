@@ -5,7 +5,15 @@
 // Objekte und Maps (ui, mouse, players …) werden direkt verändert.
 
 export const canvas = document.getElementById('game');
-export const ctx = canvas.getContext('2d');
+export let ctx = canvas.getContext('2d');
+
+// fn() auf eine andere Zeichenfläche zeichnen lassen (z. B. Boden-Kacheln): alle Zeichenfunktionen
+// benutzen ctx, das hier kurz umgestellt wird
+export function drawInto(g, fn) {
+  const main = ctx;
+  ctx = g;
+  try { fn(); } finally { ctx = main; }
+}
 
 // ---------- Sitzung (kommt mit der init-Nachricht) ----------
 

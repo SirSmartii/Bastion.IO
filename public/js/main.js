@@ -16,7 +16,7 @@ import { inRect } from './draw/primitives.js';
 import { drawGround, drawRuins, drawBaseZone, drawLoot, drawRock, drawTree, drawPlant, drawResourceBar } from './draw/terrain.js';
 import { TREE_TYPES } from './constants.js';
 import { drawStruct, drawBuildGhost, drawZombie, drawPlayer, drawStaminaRing, drawAimLine, drawGroundItem, drawProjectile, drawPrompt } from './draw/entities.js';
-import { drawSunShadows, drawSightShadows, drawLighting, resizeLighting } from './draw/lighting.js';
+import { drawSunShadows, drawSightShadows, dimHiddenObstacles, drawLighting, resizeLighting } from './draw/lighting.js';
 import { particles, updateEffects, drawParticles, drawFloats, drawMuzzleFlashes } from './effects.js';
 import { nearForge, nearestContainer, structSize, nearWater } from './rules.js';
 import { sendInput } from './input.js';
@@ -146,7 +146,8 @@ function spawnBurnSmoke() {
 // ---------- Welt zeichnen (von unten nach oben) ----------
 
 function drawWorld() {
-  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (W / 2 - cam.x * scale), dpr * (H / 2 - cam.y * scale));
+  // Auf ganze Pixel verschoben: die Boden-Kacheln werden so 1:1 kopiert statt neu abgetastet
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, Math.round(dpr * (W / 2 - cam.x * scale)), Math.round(dpr * (H / 2 - cam.y * scale)));
   const view = { x0: cam.x - W / 2 / scale, y0: cam.y - H / 2 / scale, x1: cam.x + W / 2 / scale, y1: cam.y + H / 2 / scale };
   const visibleResources = resourcesIn(view.x0, view.y0, view.x1, view.y1);
 
@@ -156,16 +157,22 @@ function drawWorld() {
   if (!perf.off.sun) drawSunShadows(view);
   mark('Sonnenschatten');
   drawBaseZone();
-  drawRuins(view);
-  for (const r of visibleResources) {
-    if (cfg.RESOURCES[r.type].loot) drawLoot(r);
-    else if (cfg.RESOURCES[r.type].pick) drawPlant(r);
-    else if (!TREE_TYPES.has(r.type)) drawRock(r);
-  }
-  for (const s of structs.values()) drawStruct(s);
+  // Erst, was die Sicht nicht verdeckt (liegt dann im Sichtschatten), danach die Schatten und darüber
+  // die Hindernisse selbst – die bleiben so hell, bis auf die, die hinter anderen liegen.
+  // Figuren kommen ganz nach oben (der Server schickt nur sichtbare).
+  const blocksSight = (r) => cfg.RESOURCES[r.type].sight > 0;
+  for (const r of visibleResources) if (!blocksSight(r)) drawResource(r);
+  for (const s of structs.values()) if (!cfg.STRUCTURES[s.type].blocksSight) drawStruct(s);
   for (const it of groundItems.values()) drawGroundItem(it);
   mark('Objekte');
-  if (!perf.off.sight) drawSightShadows(view); // dahinter verdeckt; Figuren kommen darüber (der Server schickt nur sichtbare)
+  const sight = !perf.off.sight;
+  if (sight) drawSightShadows(view);
+  mark('Sichtschatten');
+  drawRuins(view);
+  for (const r of visibleResources) if (blocksSight(r)) drawResource(r);
+  for (const s of structs.values()) if (cfg.STRUCTURES[s.type].blocksSight) drawStruct(s);
+  mark('Objekte');
+  if (sight) dimHiddenObstacles();
   mark('Sichtschatten');
   drawBuildGhost();
   for (const z of zombies.values()) drawZombie(z);
@@ -187,6 +194,13 @@ function drawWorld() {
   drawParticles();
   drawFloats();
   mark('Figuren & FX');
+}
+
+// Ressource am Boden (Bäume nicht: deren Kronen kommen über die Figuren)
+function drawResource(r) {
+  if (cfg.RESOURCES[r.type].loot) drawLoot(r);
+  else if (cfg.RESOURCES[r.type].pick) drawPlant(r);
+  else if (!TREE_TYPES.has(r.type)) drawRock(r);
 }
 
 // "[F] …" über der nächsten Truhe/dem Kern bzw. der Schmiede
