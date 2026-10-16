@@ -1,8 +1,9 @@
-// HUD: Uhr, Hinweise, Bestenliste, Status unten links, Hotbar, Minimap – und darüber die offenen Fenster.
+// HUD im Werkbank-Stil (ui/theme.js): Überlebenszeit oben, Kompass-Minimap oben rechts, Status unten links,
+// Hotbar unten – und darüber die offenen Fenster. Bestenliste und Ausloggen stehen im Menü [Esc] (ui/esc.js).
 
-import { ctx, cfg, me, myId, account, clock, leaderboard, online, minimap, hovered, ui, mouse, now, W, H, dpr } from '../state.js';
+import { ctx, cfg, me, myId, minimap, hovered, ui, mouse, now, W, H, dpr } from '../state.js';
 import { TAU } from '../constants.js';
-import { circle, rrect, text, panel, inRect, fmtClock } from '../draw/primitives.js';
+import { circle, rrect, text, inRect, fmtClock } from '../draw/primitives.js';
 import { drawItemIcon, itemName } from '../draw/items.js';
 import { drawStruct } from '../draw/entities.js';
 import { toasts } from '../effects.js';
@@ -14,14 +15,26 @@ import { drawStructureTooltip, drawPendingTooltip } from './tooltip.js';
 import { drawInventory, drawChest, drawDragged, supplyText } from './inventory.js';
 import { drawCharacter } from './character.js';
 import { panels } from './panels.js';
+import { artAt } from '../assets.js';
+import { woodPanel, parchment, segmentBar, WOOD, WOOD_DARK, PARCHMENT, PARCHMENT_DARK, INK, INK_LIGHT, CREAM } from './theme.js';
 
-export const logoutRect = () => ({ x: 14, y: 14, w: 112, h: 32 });
+// Statusbrett unten links: so hoch, darüber beginnt der Chat (chat.js)
+export const STATUS_H = 142, STATUS_W = 300;
+
+// Dauer als h:mm:ss bzw. m:ss
+export const fmtDuration = (sec) => (sec >= 3600 ? `${Math.floor(sec / 3600)}:${fmtClock(sec % 3600).padStart(5, '0')}` : fmtClock(sec));
 
 // HOTBAR_SIZE Item-Slots und dahinter (mit etwas Abstand) der Bau-Button
 export function hotbarRects() {
   const n = cfg ? cfg.HOTBAR_SIZE : 6, size = 60, gap = 6, sep = 18;
   const total = (n + 1) * size + n * gap + sep;
-  const x0 = Math.round(W / 2 - total / 2), y = H - size - 30;
+  // Mittig; in schmalen Fenstern rechts neben das Statusbrett, und passt sie dort nicht hin, darüber
+  const statusRight = 14 + STATUS_W + 52; // Platz für "Lv" links der EP-Leiste
+  let x0 = Math.round(W / 2 - total / 2), y = H - size - 24;
+  if (x0 < statusRight) {
+    if (statusRight + total <= W - 14) x0 = statusRight;
+    else { x0 = Math.max(14, x0); y -= STATUS_H + 44; }
+  }
   const rects = [];
   for (let i = 0; i < n; i++) rects.push({ x: x0 + i * (size + gap), y, w: size, h: size });
   rects.push({ x: x0 + n * (size + gap) + sep, y, w: size, h: size });
@@ -30,14 +43,13 @@ export function hotbarRects() {
 
 export function drawHud() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const toastY = drawClockAndBadge();
+  const toastY = drawSurvivalTime();
   toasts.forEach((t, i) => {
     ctx.globalAlpha = Math.min(1, t.life);
     text(t.text, W / 2, toastY + i * 26, { size: 17, bold: true, align: 'center', color: '#fff' });
     ctx.globalAlpha = 1;
   });
-  drawAccountBar();
-  drawLeaderboard();
+  text('[Esc] Menü', 16, 26, { size: 12, color: 'rgba(255,255,255,0.45)' });
   drawStatus();
   drawHotbar();
   drawMinimap();
@@ -57,7 +69,7 @@ export function drawHud() {
     if (ui.drag && (ui.inv || ui.char)) drawDragged();
   }
   drawPendingTooltip();
-  if (ui.panel && (!me.dead || ui.panel === 'team' || ui.panel === 'map')) panels[ui.panel].draw();
+  if (ui.panel && (!me.dead || panels[ui.panel].whileDead)) panels[ui.panel].draw();
 
   if (me.dead) {
     ctx.fillStyle = 'rgba(40,0,0,0.45)';
@@ -67,13 +79,21 @@ export function drawHud() {
   }
 }
 
-// Tag/Nacht-Uhr und darunter ein Hinweis (Verfall, Spawnschutz, ruhige Nacht). Liefert y für die Meldungen.
-function drawClockAndBadge() {
-  const [day, night, progress] = clock;
-  panel(W / 2 - 130, 14, 260, 52);
-  text(`${night ? '🌙 Nacht' : '☀️ Tag'} ${day}`, W / 2, 38, { size: 17, bold: true, align: 'center', color: night ? '#a9b8ff' : '#ffe08a' });
-  rrect(W / 2 - 110, 46, 220, 8, 4, 'rgba(255,255,255,0.12)');
-  rrect(W / 2 - 110, 46, 220 * progress, 8, 4, night ? '#6f7fe0' : '#f5c84a');
+// ---------- Oben: wie lange man schon lebt ----------
+
+// Brett mit gewölbter Oberkante; darunter ein Hinweis (Verfall, Spawnschutz, ruhige Nacht). Liefert y für die Meldungen.
+function drawSurvivalTime() {
+  const w = 190, x = W / 2 - w / 2;
+  woodPanel(x, 10, w, 52, [26, 26, 8, 8]);
+  const alive = me.dead ? 0 : me.al || 0, best = me.ab || 0;
+  const time = fmtDuration(alive);
+  ctx.font = 'bold 19px Segoe UI, sans-serif';
+  const tw = ctx.measureText(time).width;
+  artAt('ui/hourglass', W / 2 - tw / 2 - 4, 32, 18);
+  text(time, W / 2 + 9, 38, { size: 19, bold: true, align: 'center', color: CREAM });
+  text(alive >= best && best > 60 ? '★ neuer Rekord' : `überlebt · Rekord ${fmtDuration(best)}`, W / 2, 54, {
+    size: 11, align: 'center', color: alive >= best && best > 60 ? '#ffd76a' : 'rgba(243,226,192,0.65)',
+  });
 
   let badge = null;
   if (me.up && me.up.d) {
@@ -81,86 +101,83 @@ function drawClockAndBadge() {
     badge = ['⚠ Deine Basis verfällt – Holz/Stein/Gold in den Basis-Kern legen [F]', blink ? 'rgba(140,30,20,0.9)' : 'rgba(110,25,18,0.9)', '#ffd9d0'];
   } else if (me.prot > 0) badge = [`🛡 Spawnschutz – noch ${fmtClock(me.prot)}`, 'rgba(40,90,130,0.85)', '#cfeeff'];
   else if (me.calm > 0) badge = [`🌙 Ruhige erste Nacht – wenige Gegner (${fmtClock(me.calm)})`, 'rgba(50,50,100,0.85)', '#d6d9ff'];
-  if (!badge) return 96;
+  if (!badge) return 92;
 
   const [label, background, color] = badge;
   ctx.font = 'bold 13px Segoe UI, sans-serif';
   const bw = ctx.measureText(label).width + 24;
-  rrect(W / 2 - bw / 2, 72, bw, 24, 12, background, 'rgba(255,255,255,0.25)', 1.5);
-  text(label, W / 2, 89, { size: 13, bold: true, align: 'center', color });
-  return 122;
+  rrect(W / 2 - bw / 2, 70, bw, 24, 12, background, 'rgba(255,255,255,0.25)', 1.5);
+  text(label, W / 2, 87, { size: 13, bold: true, align: 'center', color });
+  return 120;
 }
 
-// Ausloggen-Knopf und ob gespeichert wird
-function drawAccountBar() {
-  const r = logoutRect(), hover = inRect(mouse.x, mouse.y, r);
-  rrect(r.x, r.y, r.w, r.h, 8, hover ? 'rgba(160,60,40,0.85)' : 'rgba(10,14,8,0.62)', 'rgba(255,255,255,0.12)', 1.5);
-  text('⏻ Ausloggen', r.x + r.w / 2, r.y + 21, { size: 13, bold: true, align: 'center', color: '#fff' });
-  text(account ? `👤 ${account} · wird gespeichert` : '👤 Gast · wird nicht gespeichert', r.x + r.w + 10, r.y + 21, { size: 12, color: account ? '#9fe870' : '#c9a69e' });
-}
+// ---------- Unten links: Leben, Ausdauer, Hunger, Durst, Werte, Basis ----------
 
-function drawLeaderboard() {
-  const w = 220;
-  panel(W - w - 14, 14, w, 40 + leaderboard.length * 22);
-  text(`Bestenliste · ${online} online`, W - w, 38, { size: 14, bold: true, color: '#ffe08a' });
-  leaderboard.forEach(([id, name, score], i) => {
-    const color = id === myId ? '#9fe870' : '#fff';
-    text(`${i + 1}. ${name}`, W - w, 62 + i * 22, { size: 14, color });
-    text(String(score), W - 28, 62 + i * 22, { size: 14, color, align: 'right' });
-  });
-}
-
-// Statusfeld unten links: Leben, Ausdauer, Werte, Schmiede, Basis, Punkte
 function drawStatus() {
-  panel(14, H - 186, 330, 172);
-  drawNeeds(28, H - 160);
-  const hpFrac = me.hp / me.maxHp;
-  text('Leben', 28, H - 134, { size: 13, color: '#cfd8c0' });
-  rrect(80, H - 146, 250, 16, 8, 'rgba(0,0,0,0.5)');
-  rrect(82, H - 144, 246 * hpFrac, 12, 6, hpFrac > 0.35 ? '#7ed957' : '#e05555');
-  text(`${Math.round(me.hp)}/${me.maxHp}`, 205, H - 134, { size: 11, bold: true, align: 'center' });
-
-  text('Ausdauer', 28, H - 110, { size: 13, color: me.ex ? '#ff8a7a' : '#cfd8c0' });
-  rrect(92, H - 120, 238, 12, 6, 'rgba(0,0,0,0.5)');
-  rrect(94, H - 118, 234 * (me.st / me.stats.stamina), 8, 4, me.ex ? '#e05555' : '#f5c84a');
-  text(me.ex ? 'erschöpft' : '[Shift] sprinten', 330, H - 98, { size: 10, color: me.ex ? '#ff8a7a' : '#8f9c80', align: 'right' });
-
-  const st = me.stats;
-  text(`⚔ ${st.damage}  🛡 ${st.armor}  👟 ${st.speed}  ·  [C] Charakter`, 28, H - 86, { size: 13 });
-  if (me.forge) text('⚒️ Äxte & Kleidung: an der Schmiede [F]', 28, H - 66, { size: 13, color: '#cfd8c0' });
-  else text('⚒️ Baue eine Schmiede [B] für Äxte & Kleidung', 28, H - 66, { size: 13, color: '#c9a69e' });
-
-  if (me.core) {
-    const base = `🏰 Basis Lv ${me.core[3] + 1} · Gebäude ${me.count}/${me.max} · `;
-    text(base, 28, H - 46, { size: 13, color: '#cfd8c0' });
-    const [supply, color] = !me.up ? ['', ''] : me.up.d ? ['⚠ Verfall!', '#ff8a7a'] : [`⏳ ${supplyText(me.up)}`, me.up.n < 2 ? '#ffb36a' : '#cfd8c0'];
-    ctx.font = '13px Segoe UI, sans-serif';
-    text(supply, 28 + ctx.measureText(base).width, H - 46, { size: 13, bold: true, color });
-  } else text('🏰 Noch keine Basis', 28, H - 46, { size: 13, color: '#ff9a7a' });
-  text(`🏆 ${me.score}   💀 ${me.kills}`, 28, H - 26, { size: 13, color: '#cfd8c0' });
-  text('[Tab] Inventar', 330, H - 26, { size: 12, color: '#a8b597', align: 'right' });
-}
-
-// Hunger & Durst als zwei halbe Leisten über dem Leben; unter warnAt blinken sie rot
-function drawNeeds(x, y) {
-  const S = cfg.SURVIVAL, blink = Math.sin(now * 8) > 0;
-  const bar = (bx, label, v, color) => {
-    const low = v <= S.warnAt;
-    text(label, bx, y + 4, { size: 13, color: low && blink ? '#ff8a7a' : '#cfd8c0' });
-    rrect(bx + 28, y - 7, 112, 14, 7, 'rgba(0,0,0,0.5)');
-    if (v > 0) rrect(bx + 30, y - 5, Math.max(4, 108 * (v / S.max)), 10, 5, low ? '#e05555' : color);
-    text(String(Math.round(v)), bx + 84, y + 4, { size: 10, bold: true, align: 'center' });
+  const x = 14, y = H - STATUS_H - 10, w = STATUS_W, S = cfg.SURVIVAL, blink = Math.sin(now * 8) > 0;
+  woodPanel(x, y, w, STATUS_H);
+  const barX = x + 40, barW = w - 56;
+  // Symbol aus assets/ui; warn = blinkt
+  const icon = (name, ix, iy, size, warn) => {
+    if (warn && blink) ctx.globalAlpha = 0.35;
+    artAt(`ui/${name}`, ix, iy, size);
+    ctx.globalAlpha = 1;
   };
-  bar(x, '🍖', me.hu ?? S.max, '#e8a34a');
-  bar(x + 154, '💧', me.th ?? S.max, '#5bb8f0');
+
+  // Leben (mit Zahl rechts darüber), Ausdauer
+  const hpFrac = me.hp / me.maxHp, hpLow = hpFrac <= 0.35;
+  icon('heart', x + 22, y + 24, 18, hpLow);
+  segmentBar(barX, y + 18, barW, 13, hpFrac, hpLow ? '#e05555' : '#c94a3a');
+  text(`${Math.round(me.hp)}/${me.maxHp}`, barX + barW, y + 14, { size: 10, bold: true, align: 'right', color: 'rgba(243,226,192,0.7)' });
+  icon('stamina', x + 22, y + 45, 16, me.ex);
+  segmentBar(barX, y + 41, barW, 9, me.st / me.stats.stamina, me.ex ? '#e05555' : '#e0ad35');
+
+  // Hunger & Durst nebeneinander; unter warnAt blinken sie rot
+  const half = (barW - 34) / 2;
+  const need = (bx, name, v, color) => {
+    const low = v <= S.warnAt;
+    icon(name, bx - 17, y + 67, 16, low);
+    segmentBar(bx, y + 62, half, 10, v / S.max, low ? '#e05555' : color, 5);
+  };
+  need(barX, 'hunger', me.hu ?? S.max, '#d98c2e');
+  need(barX + half + 34, 'thirst', me.th ?? S.max, '#3f8ac0');
+
+  // Pergament: Werte, Punkte und Basis bzw. was als Nächstes zu tun ist
+  const py = y + 84;
+  parchment(x + 10, py, w - 20, STATUS_H - 94);
+  const st = me.stats;
+  let vx = x + 20;
+  for (const [name, value] of [['damage', st.damage], ['armor', st.armor], ['speed', st.speed]]) {
+    artAt(`ui/${name}`, vx + 7, py + 14, 15);
+    text(String(value), vx + 17, py + 19, { size: 13, bold: true, color: INK });
+    ctx.font = 'bold 13px Segoe UI, sans-serif';
+    vx += 17 + ctx.measureText(String(value)).width + 12;
+  }
+  ctx.font = 'bold 13px Segoe UI, sans-serif';
+  const kills = String(me.kills), score = String(me.score), kw = ctx.measureText(kills).width;
+  text(kills, x + w - 20, py + 19, { size: 13, bold: true, color: INK, align: 'right' });
+  artAt('ui/skull', x + w - 28 - kw, py + 14, 14);
+  const sx = x + w - 48 - kw;
+  text(score, sx, py + 19, { size: 13, bold: true, color: INK, align: 'right' });
+  artAt('ui/trophy', sx - ctx.measureText(score).width - 9, py + 14, 14);
+
+  artAt('ui/base', x + 26, py + 33, 14);
+  if (me.core) {
+    const base = `Lv ${me.core[3] + 1} · ${me.count}/${me.max} Gebäude · `;
+    text(base, x + 37, py + 38, { size: 12, color: INK_LIGHT });
+    const [supply, color] = !me.up ? ['', ''] : me.up.d ? ['⚠ Verfall!', '#b02a1a'] : [supplyText(me.up), me.up.n < 2 ? '#a5520e' : INK_LIGHT];
+    ctx.font = '12px Segoe UI, sans-serif';
+    text(supply, x + 37 + ctx.measureText(base).width, py + 38, { size: 12, bold: true, color });
+  } else text('Noch keine Basis – Baumenü [B]', x + 37, py + 38, { size: 12, bold: true, color: '#a5401e' });
 }
 
 // ---------- Hotbar ----------
 
 function drawHotbar() {
-  const rects = hotbarRects();
-  const slotBackground = (r, active, border) => rrect(r.x, r.y, r.w, r.h, 10, active ? 'rgba(255,230,140,0.28)' : 'rgba(10,14,8,0.62)',
-    border || (active ? '#ffd76a' : 'rgba(255,255,255,0.12)'), active ? 3 : 2);
+  const rects = hotbarRects(), first = rects[0], last = rects[cfg.HOTBAR_SIZE];
+  woodPanel(first.x - 8, first.y - 8, last.x + last.w - first.x + 16, first.h + 16, 10);
+  const slotBackground = (r, active, border) => rrect(r.x, r.y, r.w, r.h, 6, active ? '#f7ecd0' : PARCHMENT,
+    border || (active ? '#e0a82e' : PARCHMENT_DARK), active || border ? 3 : 2);
   const hoverSlot = rects.findIndex((r) => inRect(mouse.x, mouse.y, r));
   const draggingItem = ui.drag && ui.drag.slot !== undefined;
 
@@ -171,29 +188,29 @@ function drawHotbar() {
     const count = item ? me.res[item] || 0 : 0;
     // Aktiv = ausgerüstete Waffe bzw. gewählte Munition
     const active = !!item && ui.selected === 0 && ((equipped && def.slot === 'weapon') || item === me.ammo);
-    slotBackground(r, active, draggingItem && hoverSlot === i ? '#9fe870' : equipped ? '#9fe870' : null);
-    text(String(i + 1), r.x + 6, r.y + 15, { size: 11, color: '#ddd', bold: true });
+    slotBackground(r, active, draggingItem && hoverSlot === i ? '#5f8f2f' : equipped && !active ? '#5f8f2f' : null);
+    text(String(i + 1), r.x + 5, r.y + 14, { size: 11, color: INK_LIGHT, bold: true });
     if (!item) continue;
     ctx.globalAlpha = equipped || count > 0 ? 1 : 0.35;
     drawItemIcon(item, r.x + r.w / 2, r.y + r.h / 2 - 3, 36);
     ctx.globalAlpha = 1;
-    if (!def) text(String(count), r.x + r.w - 5, r.y + r.h - 6, { size: 12, bold: true, align: 'right', color: count ? '#fff' : '#ff8a7a' });
-    else if (equipped) text('E', r.x + r.w - 6, r.y + 15, { size: 11, bold: true, align: 'right', color: '#9fe870' });
+    if (!def) text(String(count), r.x + r.w - 5, r.y + r.h - 6, { size: 12, bold: true, align: 'right', color: count ? INK : '#b02a1a' });
+    else if (equipped) text('E', r.x + r.w - 6, r.y + 14, { size: 11, bold: true, align: 'right', color: '#3f6f1a' });
     if (equipped && def.ammo) {
       // Fernwaffe: Munitionsvorrat in der Ecke
       const ammo = me.res[me.ammo] || 0;
-      text(String(ammo), r.x + r.w - 5, r.y + r.h - 6, { size: 11, bold: true, align: 'right', color: ammo ? '#fff' : '#ff8a7a' });
+      text(String(ammo), r.x + r.w - 5, r.y + r.h - 6, { size: 11, bold: true, align: 'right', color: ammo ? INK : '#b02a1a' });
       drawItemIcon(me.ammo, r.x + 12, r.y + r.h - 11, 13);
     }
-    if (hoverSlot === i && !ui.drag) text(itemName(item), r.x + r.w / 2, r.y - 8, { size: 12, bold: true, align: 'center' });
+    if (hoverSlot === i && !ui.drag) text(itemName(item), r.x + r.w / 2, r.y - 34, { size: 12, bold: true, align: 'center' });
   }
   if (me.stats.ranged) {
     const kinds = cfg.AMMO[me.stats.ammo].types.filter((t) => (me.res[t.item] || 0) > 0).length;
-    if (kinds > 1) text(`[R] ${itemName(me.ammo)}`, rects[0].x, rects[0].y - 26, { size: 11, bold: true, color: '#ffd76a' });
+    if (kinds > 1) text(`[R] ${itemName(me.ammo)}`, first.x, first.y - 40, { size: 11, bold: true, color: '#ffd76a' });
   }
-  if (ui.inv) text('Item auf einen Slot ziehen oder mit Maus drauf 1–6 drücken · Rechtsklick leert', W / 2, rects[0].y - 40, { size: 11, align: 'center', color: '#cfd8c0' });
+  if (ui.inv) text('Item auf einen Slot ziehen oder mit Maus drauf 1–6 drücken · Rechtsklick leert', W / 2, first.y - 52, { size: 11, align: 'center', color: '#cfd8c0' });
 
-  drawBuildButton(rects[cfg.HOTBAR_SIZE], slotBackground);
+  drawBuildButton(last, slotBackground);
   drawXpBar(rects);
 }
 
@@ -214,47 +231,46 @@ function drawBuildButton(r, slotBackground) {
     rrect(-14, -22, 28, 12, 3, '#9aa1a8', '#5c6268', 3);
   }
   ctx.restore();
-  text('B', r.x + 6, r.y + 15, { size: 11, color: '#ddd', bold: true });
-  text(type ? cfg.STRUCTURES[type].name : 'Bauen', r.x + r.w / 2, r.y + r.h - 6, { size: 11, align: 'center' });
+  text('B', r.x + 5, r.y + 14, { size: 11, color: INK_LIGHT, bold: true });
+  text(type ? cfg.STRUCTURES[type].name : 'Bauen', r.x + r.w / 2, r.y + r.h - 6, { size: 11, align: 'center', color: INK });
   if (type) {
     const cost = cfg.STRUCTURES[type].levels[0].cost;
-    text(fmtCost(cost), r.x + r.w / 2, r.y + r.h + 15, { size: 11, color: canAfford(cost) ? '#e8e8e8' : '#ff8a7a', align: 'center' });
+    text(fmtCost(cost), r.x + r.w / 2, r.y + r.h + 20, { size: 11, color: canAfford(cost) ? '#e8e8e8' : '#ff8a7a', align: 'center' });
   }
 }
 
-// EP-Leiste direkt über der Hotbar
+// EP-Leiste über dem Hotbar-Brett
 function drawXpBar(rects) {
-  const last = rects[cfg.HOTBAR_SIZE], x = rects[0].x, w = last.x + last.w - x, y = rects[0].y - 14;
-  rrect(x, y, w, 8, 4, 'rgba(0,0,0,0.55)');
+  const last = rects[cfg.HOTBAR_SIZE], x = rects[0].x, w = last.x + last.w - x, y = rects[0].y - 22;
+  rrect(x, y, w, 8, 4, WOOD_DARK, WOOD, 1.5);
   rrect(x + 1.5, y + 1.5, Math.max(0, (w - 3) * Math.min(1, me.xp / me.xpNext)), 5, 2.5, '#7fc4ff');
-  text(`Lv ${me.lvl}`, x - 8, y + 8, { size: 13, bold: true, align: 'right', color: '#ffd76a' });
-  text(`${me.xp}/${me.xpNext} EP`, x + w + 8, y + 8, { size: 11, color: '#cfd8c0' });
-  if (me.sp > 0) text(`+${me.sp} Skillpunkt${me.sp > 1 ? 'e' : ''} [K]`, x + w / 2, y - 4, { size: 12, bold: true, align: 'center', color: '#ffd76a' });
+  text(`Lv ${me.lvl}`, x - 10, y + 8, { size: 13, bold: true, align: 'right', color: '#ffd76a' });
+  text(`${me.xp}/${me.xpNext} EP`, x + w + 10, y + 8, { size: 11, color: '#cfd8c0' });
+  if (me.sp > 0) text(`+${me.sp} Skillpunkt${me.sp > 1 ? 'e' : ''} [K]`, x + w / 2, y - 5, { size: 12, bold: true, align: 'center', color: '#ffd76a' });
 }
 
-// ---------- Minimap ----------
+// ---------- Minimap: runder Kompass oben rechts ----------
 
-// Radar um den Spieler: zeigt ±MINIMAP_RANGE Welteinheiten
+// Radar um den Spieler: zeigt ±MINIMAP_RANGE Welteinheiten, Norden oben
 function drawMinimap() {
-  const size = 190, x = W - size - 14, y = H - size - 14, R = cfg.MINIMAP_RANGE, k = size / (2 * R);
-  const mx = (wx) => x + size / 2 + (wx - me.x) * k, my = (wy) => y + size / 2 + (wy - me.y) * k;
-  rrect(x, y, size, size, 10, 'rgba(32,48,24,0.92)', 'rgba(255,255,255,0.15)', 2);
+  const R = 84, cx = W - 14 - R - 4, cy = 14 + R + 4, range = cfg.MINIMAP_RANGE, k = R / range;
+  const mx = (wx) => cx + (wx - me.x) * k, my = (wy) => cy + (wy - me.y) * k;
   ctx.save();
   ctx.beginPath();
-  ctx.roundRect(x, y, size, size, 10);
+  ctx.arc(cx, cy, R, 0, TAU);
   ctx.clip();
   // Außerhalb der Welt dunkel
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.fillRect(x, y, size, size);
+  ctx.fillStyle = '#1d2616';
+  ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
   ctx.fillStyle = 'rgba(52,78,38,0.95)';
   ctx.fillRect(mx(0), my(0), cfg.WORLD_SIZE * k, cfg.WORLD_SIZE * k);
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
   ctx.lineWidth = 1;
-  for (const r of [R / 3, (2 * R) / 3]) {
-    ctx.beginPath();
-    ctx.arc(x + size / 2, y + size / 2, r * k, 0, TAU);
-    ctx.stroke();
-  }
+  ctx.beginPath();
+  for (const r of [R / 3, (2 * R) / 3]) { ctx.moveTo(cx + r, cy); ctx.arc(cx, cy, r, 0, TAU); }
+  ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
+  ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
+  ctx.stroke();
   if (me.core) {
     ctx.beginPath();
     ctx.arc(mx(me.core[1]), my(me.core[2]), me.core[4] * k, 0, TAU);
@@ -272,23 +288,19 @@ function drawMinimap() {
   const strangers = minimap.p;
   for (let i = 0; i < strangers.length; i += 2) circle(mx(strangers[i] * 10), my(strangers[i + 1] * 10), 3, '#ffe08a', '#000', 1);
   for (const [, , tx, ty, , dead] of teammates()) if (!dead) circle(mx(tx), my(ty), 3.5, '#7fe0a0', '#000', 1);
-  circle(x + size / 2, y + size / 2, 4, '#fff', '#000', 1.5);
+  circle(cx, cy, 4, '#fff', '#000', 1.5);
   ctx.restore();
 
-  // Legende
-  const legend = me.team ? [['#ff3b3b', 'Feind'], ['#ffe08a', 'Spieler'], ['#7fe0a0', 'Team']] : [['#ff3b3b', 'Feind'], ['#ffe08a', 'Spieler']];
-  ctx.font = '10px Segoe UI, sans-serif';
-  ctx.textAlign = 'left';
-  let lx = x + 8;
-  for (const [color, label] of legend) {
-    ctx.fillStyle = color;
-    ctx.fillText('●', lx, y + size - 8);
-    lx += ctx.measureText('● ').width;
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText(label, lx, y + size - 8);
-    lx += ctx.measureText(label + ' ').width + 2;
+  // Holzring mit Himmelsrichtungen
+  circle(cx, cy, R + 4, null, WOOD, 8);
+  circle(cx, cy, R + 8.5, null, WOOD_DARK, 2);
+  circle(cx, cy, R, null, WOOD_DARK, 1.5);
+  for (const [label, ax, ay] of [['N', 0, -1], ['O', 1, 0], ['S', 0, 1], ['W', -1, 0]]) {
+    const north = label === 'N', px = cx + ax * (R + 4), py = cy + ay * (R + 4);
+    if (north) circle(px, py, 9, PARCHMENT, PARCHMENT_DARK, 2);
+    text(label, px, py + 4, { size: north ? 11 : 9, bold: true, align: 'center', color: north ? '#a5401e' : CREAM });
   }
-  text('[M] Karte', x + size - 8, y + size - 8, { size: 10, color: 'rgba(255,255,255,0.55)', align: 'right' });
+  text('[M] Karte', cx, cy + R + 24, { size: 11, align: 'center', color: 'rgba(255,255,255,0.55)' });
 }
 
 function drawMinimapTerrain(mx, my, k) {
@@ -316,3 +328,4 @@ function drawMinimapTerrain(mx, my, k) {
     text(c.name, mx(c.x), my(c.y) + 3, { size: 9, bold: true, align: 'center', color: 'rgba(255,245,220,0.85)' });
   }
 }
+

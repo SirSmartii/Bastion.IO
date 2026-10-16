@@ -102,7 +102,7 @@ export function setResources(list) {
 }
 
 function makeResource([id, type, x, y, r, frac, angle], born) {
-  return { id, type, x, y, r, frac, angle: angle || 0, shake: -9, hitT: -9, bornT: born ? now : -9, pts: rockShape(id, r) };
+  return { id, type, x, y, r, frac, angle: angle || 0, shake: -9, hitT: -9, bornT: born ? now : -9 };
 }
 
 // Server-Update { c: [id, Anteil, …], a: [neue Ressourcen], r: [entfernte IDs] }
@@ -141,14 +141,3 @@ export function resScale(r) {
   return (min + (1 - min) * r.frac) * born;
 }
 
-// Unregelmäßiges Achteck als Felsform, aus der ID abgeleitet (immer gleich)
-function rockShape(seed, r) {
-  let s = seed * 9301 + 49297;
-  const rnd = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
-  const pts = [];
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * TAU + rnd() * 0.3, rr = r * (0.82 + rnd() * 0.2);
-    pts.push([Math.cos(a) * rr, Math.sin(a) * rr]);
-  }
-  return pts;
-}

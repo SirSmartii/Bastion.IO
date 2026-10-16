@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-25 -25 50 50"><defs><radialGradient id="pk" cx="0.35" cy="0.3" r="0.75"><stop offset="0" stop-color="#ffb25a"/><stop offset="0.55" stop-color="#ee8a2b"/><stop offset="1" stop-color="#b8611a"/></radialGradient></defs><ellipse cx="-12.7" cy="-16.2" rx="11.5" ry="7.3" fill="#4e8a34" stroke="#14320f" stroke-opacity="0.6" stroke-width="1.5" transform="rotate(-137.5 -12.7 -16.2)"/><ellipse cx="15.0" cy="-12.2" rx="10.5" ry="6.3" fill="#5a9a3c" stroke="#14320f" stroke-opacity="0.6" stroke-width="1.5" transform="rotate(-34.4 15.0 -12.2)"/>
+<ellipse cx="-9.5" cy="0" rx="10.5" ry="15.8" fill="#e07a22" stroke="#8a4510" stroke-width="2"/>
+<ellipse cx="9.5" cy="0" rx="10.5" ry="15.8" fill="#e07a22" stroke="#8a4510" stroke-width="2"/>
+<ellipse cx="0" cy="0" rx="11.5" ry="16.8" fill="url(#pk)" stroke="#8a4510" stroke-width="2.5"/>
+<rect x="-1.7" y="-20" width="3.4" height="6.3" rx="2" fill="#6a5020"/></svg>

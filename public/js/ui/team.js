@@ -7,6 +7,9 @@ import { send } from '../net.js';
 const WIDTH = 440, PAD = 18, ROW = 36;
 
 // Zeilen und Buttons (gemeinsam für Zeichnen & Klicks). Zeilen-y zuerst relativ, am Ende verschoben.
+// Auch im Tod offen lassen (hud.js)
+export const whileDead = true;
+
 export function layout() {
   const x = Math.round(W / 2 - WIDTH / 2), right = x + WIDTH - PAD;
   const team = me.team, rows = [], buttons = [];

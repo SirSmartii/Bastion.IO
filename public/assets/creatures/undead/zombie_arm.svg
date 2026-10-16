@@ -1,0 +1,2 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-9 -9 18 18"><defs><radialGradient id="za" cx="0.35" cy="0.3" r="0.75"><stop offset="0" stop-color="#c4dc94"/><stop offset="0.55" stop-color="$C"/><stop offset="1" stop-color="#3b5a28"/></radialGradient></defs><circle cx="0" cy="0" r="7" fill="url(#za)" stroke="#253a19" stroke-width="3"/>
+<path d="M3 -3 l3 -1 M4 0 l3 0 M3 3 l3 1" stroke="#253a19" stroke-width="1.4" stroke-linecap="round"/></svg>

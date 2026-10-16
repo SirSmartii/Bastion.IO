@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 -20 40 40"><defs><linearGradient id="bark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b98149"/><stop offset="1" stop-color="#83552a"/></linearGradient></defs><ellipse cx="0" cy="15" rx="14" ry="4" fill="#000" opacity="0.18"/>
+<g transform="rotate(-28) translate(-3 7)">
+  <rect x="-17" y="-6" width="34" height="12" rx="6" fill="url(#bark)" stroke="#4a2e14" stroke-width="2"/>
+  <path d="M-12 -3 h14 M-6 2 h16" stroke="#6b4524" stroke-width="1.2" stroke-linecap="round"/>
+  <ellipse cx="17" cy="0" rx="5" ry="6" fill="#e2bb84" stroke="#4a2e14" stroke-width="2"/>
+  <ellipse cx="17" cy="0" rx="2.4" ry="3" fill="none" stroke="#b58850" stroke-width="1"/>
+</g>
+<g transform="rotate(-28) translate(3 -7)">
+  <rect x="-17" y="-6" width="34" height="12" rx="6" fill="url(#bark)" stroke="#4a2e14" stroke-width="2"/>
+  <path d="M-12 -3 h14 M-6 2 h16" stroke="#6b4524" stroke-width="1.2" stroke-linecap="round"/>
+  <ellipse cx="17" cy="0" rx="5" ry="6" fill="#e2bb84" stroke="#4a2e14" stroke-width="2"/>
+  <ellipse cx="17" cy="0" rx="2.4" ry="3" fill="none" stroke="#b58850" stroke-width="1"/>
+</g></svg>

@@ -40,6 +40,8 @@ module.exports = {
     switch (m.t) {
       case 'i':
         p.keys = int(m.k);
+        // Nummer der Eingabe für die Bewegungsvorhersage des Clients; ab jetzt zählen die Ticks mit diesen Tasten
+        if (Number.isFinite(m.s)) { p.inSeq = int(m.s); p.inTicks = 0; }
         if (Number.isFinite(m.a)) p.angle = m.a;
         p.attacking = !!m.m;
         break;
@@ -233,9 +235,13 @@ module.exports = {
   fastState(p) {
     const team = this.teamOf(p);
     return {
-      x: Math.round(p.x), y: Math.round(p.y), hp: Math.round(p.hp), maxHp: p.maxHp,
+      // Position auf 0,1 genau: die Vorhersage rechnet von hier aus weiter (gerundet stäke man mal 0,5 im Felsen)
+      x: +p.x.toFixed(1), y: +p.y.toFixed(1), hp: Math.round(p.hp), maxHp: p.maxHp,
       st: Math.round(p.stamina), ex: p.exhausted ? 1 : 0, dead: p.dead, rt: +p.respawnT.toFixed(1),
       hu: Math.round(p.hunger), th: Math.round(p.thirst),
+      // Zuletzt verarbeitete Eingabe und wie viele Ticks seitdem gelaufen sind (Abgleich der Vorhersage)
+      sq: p.inSeq, sn: p.inTicks,
+      al: Math.floor(p.alive), ab: Math.floor(Math.max(p.bestAlive, p.alive)), // Überlebenszeit, Rekord (s)
       prot: Math.max(0, Math.ceil(p.protectUntil - this.time)), calm: Math.max(0, Math.ceil(p.calmUntil - this.time)),
       // Team: Mitglieder als [id, Name, x, y, Leben-Anteil, tot, Kern-x, Kern-y] (für Karten & Team-Fenster)
       team: team ? {

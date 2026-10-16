@@ -1,13 +1,14 @@
 // Gebäude, Gegner & Tiere, Spielfiguren, Items am Boden und Geschosse.
 
 import { ctx, cfg, me, myId, now, players, clock, myAngle, ui, mouse, screenToWorld, drawInto } from '../state.js';
-import { TAU, LEVEL_COLORS, LEVEL_DARK, ZOMBIE_COLORS, ARMOR_COLORS, ARROW_TIPS } from '../constants.js';
-import { circle, ellipse, rrect, hpBar, outlinedText, wrapText } from './primitives.js';
+import { TAU, LEVEL_COLORS, LEVEL_DARK, ZOMBIE_COLORS, ARROW_TIPS } from '../constants.js';
+import { circle, rrect, hpBar, outlinedText, wrapText } from './primitives.js';
 import { drawItemIcon, drawWeapon, drawGun } from './items.js';
+import { art } from '../assets.js';
 import { isAllied, snap, placementError, structSize } from '../rules.js';
 import { bubbles } from '../chat.js';
 
-const SKIN = '#f0c8a0', SKIN_OTHER = '#e8bc92', SKIN_LINE = '#8a6a4a';
+const SKIN = '#f0c8a0', SKIN_OTHER = '#e8bc92';
 
 // ---------- Gebäude ----------
 
@@ -32,154 +33,63 @@ export function drawStruct(s, ghost = false) {
   if (s.hp < s.maxHp) hpBar(s.x, s.y - size.hh - 14, Math.max(44, size.hw * 1.6), s.hp / s.maxHp, allied ? '#7ed957' : '#e05555');
 }
 
-// Ein Zeichner pro Gebäudetyp: (Gebäude, halbe Kantenlänge, Levelfarbe, dunkle Levelfarbe, Vorschau?)
+// Ein Zeichner pro Gebäudetyp: (Gebäude, halbe Kantenlänge, Levelfarbe, dunkle Levelfarbe, Vorschau?).
+// Grafiken unter assets/structures/ (Feld 50 × 50); bewegte Teile (Geschütz, Rotor, Tür, Glut) extra.
 const STRUCTURE_SHAPES = {
-  wall(s, h, c, d) {
-    rrect(-h + 2, -h + 2, h * 2 - 4, h * 2 - 4, 6, c, d, 4);
-    ctx.strokeStyle = d;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(-h + 4, 0); ctx.lineTo(h - 4, 0);
-    ctx.moveTo(0, -h + 4); ctx.lineTo(0, 0);
-    ctx.moveTo(-h / 2, 0); ctx.lineTo(-h / 2, h - 4);
-    ctx.moveTo(h / 2, 0); ctx.lineTo(h / 2, h - 4);
-    ctx.stroke();
-  },
+  wall(s, h, C, D) { art('structures/wall', { C, D }); },
+  spike(s, h, C, D) { art('structures/spike', { C, D }); },
+  window(s, h, C, D) { art('structures/window', { C, D }); },
+  storage(s, h, C, D) { art('structures/storage', { C, D }); },
 
-  spike(s, h, c, d) {
-    rrect(-h + 8, -h + 8, h * 2 - 16, h * 2 - 16, 4, d);
-    ctx.beginPath();
-    const points = 16;
-    for (let i = 0; i < points; i++) {
-      const a = (i / points) * TAU, r = i % 2 ? h * 0.45 : h * 1.02;
-      ctx[i ? 'lineTo' : 'moveTo'](Math.cos(a) * r, Math.sin(a) * r);
-    }
-    ctx.closePath();
-    ctx.fillStyle = c;
-    ctx.fill();
-    ctx.strokeStyle = d;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    circle(0, 0, h * 0.25, d);
-  },
-
-  turret(s, h, c, d) {
-    rrect(-h + 3, -h + 3, h * 2 - 6, h * 2 - 6, 8, d, '#2a2a2a', 3);
+  turret(s, h, C, D) {
+    art('structures/turret_base', { C, D });
     ctx.rotate((s.angle || 0) - ((s.rot || 0) * Math.PI) / 2); // Zielwinkel ist in Weltkoordinaten
-    rrect(0, -6, h + 8, 12, 3, '#3a3a3a', '#1f1f1f', 3);
-    circle(0, 0, h * 0.62, c, d, 4);
-    circle(0, 0, h * 0.25, d);
+    art('structures/turret_gun', { C, D });
   },
 
-  mine(s, h, c, d, ghost) {
-    rrect(-h + 2, -h + 2, h * 2 - 4, h * 2 - 4, 6, c, d, 4);
-    circle(0, 0, h * 0.55, '#2b2118');
+  mine(s, h, C, D, ghost) {
+    art('structures/mine_base', { C, D });
     ctx.rotate(ghost ? 0 : now * 1.5);
-    ctx.strokeStyle = '#f4c63d';
-    ctx.lineWidth = 4;
-    for (let i = 0; i < 4; i++) {
-      ctx.rotate(Math.PI / 4);
-      ctx.beginPath();
-      ctx.moveTo(-h * 0.45, 0);
-      ctx.lineTo(h * 0.45, 0);
-      ctx.stroke();
-    }
+    art('structures/mine_rotor');
   },
 
   // Schwelle + zwei Pfosten; das Türblatt schwingt auf, wenn jemand aus dem Team davorsteht
-  door(s, h, c, d, ghost) {
-    rrect(-h + 2, -h + 10, h * 2 - 4, h * 2 - 20, 4, 'rgba(60,44,30,0.55)');
-    rrect(-h + 2, -9, 9, 18, 3, d, '#1f1f1f', 2);
-    rrect(h - 11, -9, 9, 18, 3, d, '#1f1f1f', 2);
+  door(s, h, C, D, ghost) {
+    art('structures/door_frame', { C, D });
     const self = players.get(myId);
     const open = !ghost && isAllied(s.owner) && self && Math.hypot(self.dx - s.x, self.dy - s.y) < h + 45;
     s.openAnim = (s.openAnim || 0) + ((open ? 1 : 0) - (s.openAnim || 0)) * 0.2;
     ctx.save();
     ctx.translate(-h + 11, 0);
     ctx.rotate(-s.openAnim * Math.PI * 0.5);
-    rrect(0, -6, h * 2 - 22, 12, 3, c, d, 3);
-    ctx.strokeStyle = d;
-    ctx.lineWidth = 1.5;
-    for (const px of [h * 0.5, h]) {
-      ctx.beginPath();
-      ctx.moveTo(px, -5); ctx.lineTo(px, 5);
-      ctx.stroke();
-    }
-    circle(h * 2 - 30, 0, 2.5, '#2a2a2a');
+    art('structures/door_leaf', { C, D });
     ctx.restore();
   },
 
-  // Rahmen in Level-Farbe, Glas mit Sprossen
-  window(s, h, c, d) {
-    rrect(-h + 2, -h + 2, h * 2 - 4, h * 2 - 4, 6, c, d, 4);
-    rrect(-h + 10, -h + 10, h * 2 - 20, h * 2 - 20, 3, 'rgba(160,215,255,0.55)', d, 2);
-    ctx.strokeStyle = d;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, -h + 10); ctx.lineTo(0, h - 10);
-    ctx.moveTo(-h + 10, 0); ctx.lineTo(h - 10, 0);
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-h + 14, -6); ctx.lineTo(-6, -h + 14);
-    ctx.stroke();
-  },
-
-  // Glühende Esse und ein Amboss in Level-Farbe
-  forge(s, h, c, d, ghost) {
-    rrect(-h + 2, -h + 2, h * 2 - 4, h * 2 - 4, 6, '#4a4440', d, 4);
+  // Esse glüht flackernd
+  forge(s, h, C, D, ghost) {
+    art('structures/forge', { C, D });
     const glow = ghost ? 0.8 : 0.65 + Math.sin(now * 7) * 0.2 + Math.sin(now * 13) * 0.1;
-    circle(-h * 0.45, -h * 0.45, h * 0.32, `rgba(255,${120 + glow * 60},40,${glow})`, '#2a1d14', 2);
-    ctx.beginPath();
-    for (const [i, [x, y]] of [[-0.55, -0.05], [0.7, -0.05], [0.45, 0.2], [0.2, 0.2], [0.3, 0.55], [-0.35, 0.55], [-0.2, 0.2], [-0.4, 0.2]].entries()) {
-      ctx[i ? 'lineTo' : 'moveTo'](x * h, y * h);
-    }
-    ctx.closePath();
-    ctx.fillStyle = c;
-    ctx.fill();
-    ctx.strokeStyle = '#1f1f1f';
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    circle(-h * 0.45, -h * 0.45, h * 0.26, `rgba(255,${120 + glow * 60},40,${glow})`);
   },
 
-  // Holztruhe mit Deckelkante und Beschlägen in Level-Farbe
-  storage(s, h, c, d) {
-    rrect(-h + 5, -h + 9, h * 2 - 10, h * 2 - 16, 5, '#8a5a2b', '#3d2510', 3);
-    rrect(-h + 5, -h + 9, h * 2 - 10, h * 0.62, 5, '#a46c35', '#3d2510', 3);
-    for (const bx of [-h * 0.5, h * 0.5]) rrect(bx - 3, -h + 9, 6, h * 2 - 16, 1.5, c, d, 1.5);
-    rrect(-5, -h * 0.25, 10, 10, 2, c, '#1f1f1f', 2);
-  },
-
-  // Steinofen mit Schornstein; brennt er, glüht die Öffnung und es steigt Rauch auf
-  furnace(s, h, c, d, ghost) {
-    rrect(-h + 3, -h + 3, h * 2 - 6, h * 2 - 6, 10, '#6e6862', '#2e2a27', 4);
-    for (const [bx, by] of [[-0.55, -0.5], [0.1, -0.5], [-0.25, 0.05], [0.4, 0.05]]) rrect(bx * h, by * h, h * 0.45, h * 0.32, 3, '#857e77');
-    const burning = !!s.active || ghost;
-    const glow = burning ? 0.7 + Math.sin(now * 9) * 0.15 + Math.sin(now * 17) * 0.1 : 0;
-    rrect(-h * 0.45, h * 0.12, h * 0.9, h * 0.6, 6, burning ? `rgba(255,${110 + glow * 70},30,${0.55 + glow * 0.4})` : '#1d1b1a', '#1f1f1f', 3);
-    rrect(h * 0.38, -h * 0.85, h * 0.4, h * 0.4, 3, c, d, 2.5); // Schornstein in Level-Farbe
-    if (burning && !ghost) {
-      for (let i = 0; i < 3; i++) {
-        const t = (now * 0.6 + i / 3) % 1;
-        circle(h * 0.58 + Math.sin(t * 6 + i) * 4, -h * 0.65 - t * 30, 4 + t * 7, `rgba(90,90,90,${0.45 * (1 - t)})`);
-      }
+  // Brennt er, glüht die Öffnung und es steigt Rauch auf
+  furnace(s, h, C, D, ghost) {
+    art('structures/furnace', { C, D });
+    if (!s.active && !ghost) return;
+    ctx.globalAlpha *= ghost ? 1 : 0.8 + Math.sin(now * 9) * 0.12 + Math.sin(now * 17) * 0.08;
+    art('structures/furnace_glow');
+    ctx.globalAlpha = 1;
+    if (ghost) return;
+    for (let i = 0; i < 3; i++) {
+      const t = (now * 0.6 + i / 3) % 1;
+      circle(h * 0.58 + Math.sin(t * 6 + i) * 4, -h * 0.65 - t * 30, 4 + t * 7, `rgba(90,90,90,${0.45 * (1 - t)})`);
     }
   },
 
-  // Steinring mit Holzscheiten; brennt es, flackern Flammen und Funken steigen auf
-  campfire(s, h, c, d, ghost) {
-    for (let i = 0; i < 9; i++) {
-      const a = (i / 9) * TAU;
-      circle(Math.cos(a) * h * 0.72, Math.sin(a) * h * 0.72, h * 0.22, i % 2 ? '#8b9196' : '#7a8086', '#4a4f53', 2);
-    }
-    circle(0, 0, h * 0.52, '#2b211a');
-    for (const a of [0.3, 1.9, 3.5]) {
-      ctx.save();
-      ctx.rotate(a);
-      rrect(-h * 0.5, -h * 0.09, h, h * 0.18, 3, '#7a5228', '#3d2510', 2);
-      ctx.restore();
-    }
+  // Brennt es, flackern Flammen und Funken steigen auf
+  campfire(s, h, C, D, ghost) {
+    art('structures/campfire');
     if (!s.active && !ghost) return;
     const f = ghost ? 0.8 : 0.75 + Math.sin(now * 11 + s.id) * 0.15 + Math.sin(now * 23) * 0.1;
     circle(0, 0, h * 0.5 * f, 'rgba(255,120,30,0.55)');
@@ -193,15 +103,14 @@ const STRUCTURE_SHAPES = {
   },
 
   // Liegender Block mit pulsierendem Kristall; die Punkte rechts zeigen das Level
-  core(s, h, c, d, ghost, hw, hh) {
-    rrect(-hw + 3, -hh + 3, hw * 2 - 6, hh * 2 - 6, 10, d, '#1f1f1f', 4);
-    rrect(-hw + 10, -hh + 10, hw * 2 - 20, hh * 2 - 20, 6, c);
-    const pulse = 1 + Math.sin(now * 3) * 0.06, k = hh * 0.42;
+  core(s, h, C, D, ghost, hw, hh) {
+    art('structures/core_base', { C, D });
+    const pulse = 1 + Math.sin(now * 3) * 0.06;
     ctx.save();
     ctx.translate(-hw * 0.3, 0);
     ctx.rotate(Math.PI / 4);
     ctx.scale(pulse, pulse);
-    rrect(-k, -k, k * 2, k * 2, 5, '#86e6ff', '#2a8fb0', 3);
+    art('structures/core_crystal');
     ctx.restore();
     for (let i = 0; i <= s.level; i++) circle(hw * 0.15 + (i % 3) * 10, i < 3 ? -5 : 6, 3.5, '#fff', '#222', 1.5);
   },
@@ -274,10 +183,19 @@ function drawSprite(key, extent, draw) {
   ctx.drawImage(c, -s / 2, -s / 2, s, s);
 }
 
+// Untote: Körper und Arme aus assets/creatures/undead (gezeichnet für Radius 22), Augen nachts rot
 function drawZombieBody(type, r, lunge) {
-  const color = ZOMBIE_COLORS[type];
-  for (const side of [-1, 1]) circle(r * 0.75 + lunge, side * r * 0.62, r * 0.32, color, '#253a19', 3);
-  circle(0, 0, r, color, '#253a19', 4);
+  const C = ZOMBIE_COLORS[type], k = r / 22;
+  ctx.save();
+  ctx.scale(k, k);
+  for (const side of [-1, 1]) {
+    ctx.save();
+    ctx.translate(16.5 + lunge / k, side * 13.6);
+    art('creatures/undead/zombie_arm', { C });
+    ctx.restore();
+  }
+  art('creatures/undead/zombie_body', { C });
+  ctx.restore();
   const eye = clock[1] ? '#ff3b3b' : '#1d1d1d'; // nachts rote Augen
   circle(r * 0.45, -r * 0.3, r * 0.14, eye);
   circle(r * 0.45, r * 0.3, r * 0.14, eye);
@@ -300,68 +218,54 @@ export function drawZombie(z) {
   if (z.hp < z.maxHp) hpBar(z.dx, z.dy - r - 14, r * 2, z.hp / z.maxHp, '#e05555');
 }
 
-// Alpha: dunkles Fell mit heller Halskrause
-const WOLF_FUR = { normal: ['#80868c', '#6e7378', '#5d6267', '#8d9399'], alpha: ['#3f4347', '#34383b', '#2a2d30', '#4a4f53'] };
+// Alpha: dunkles Fell mit heller Halskrause. Fell [Körper, Schwanz, Ohren, Kopf] und Schnauze
+const WOLF_FUR = {
+  normal: { C: '#80868c', F: '#8d9399', E: '#b8bdc1' },
+  alpha: { C: '#3f4347', F: '#4a4f53', E: '#8d9399' },
+};
 
+// Tiere aus assets/creatures/animals, jeweils für einen Bezugsradius gezeichnet und auf r skaliert
 function drawWolf(r, lunge, alpha, eyes) {
-  const [body, tail, ear, head] = WOLF_FUR[alpha ? 'alpha' : 'normal'];
+  const fur = WOLF_FUR[alpha ? 'alpha' : 'normal'], k = r / 20;
   ctx.save();
-  ctx.translate(-r * 1.1, 0);
+  ctx.scale(k, k);
+  ctx.save();
+  ctx.translate(-22, 0);
   ctx.rotate(Math.sin(now * 10) * 0.3); // Schwanzwedeln
-  ellipse(-r * 0.4, 0, r * 0.55, r * 0.22, tail, '#1f2123', 3);
+  art('creatures/animals/wolf_tail', fur);
   ctx.restore();
-  ellipse(0, 0, r * 1.15, r * 0.7, body, '#1f2123', 4);
-  if (alpha) ellipse(r * 0.55, 0, r * 0.35, r * 0.62, '#c9ccd0', '#1f2123', 2); // Halskrause
-  const hx = r * 0.95 + lunge;
-  for (const side of [-1, 1]) { // Ohren
-    ctx.beginPath();
-    ctx.moveTo(hx - r * 0.1, side * r * 0.25);
-    ctx.lineTo(hx - r * 0.35, side * r * 0.75);
-    ctx.lineTo(hx + r * 0.15, side * r * 0.4);
-    ctx.closePath();
-    ctx.fillStyle = ear;
-    ctx.fill();
-  }
-  circle(hx, 0, r * 0.5, head, '#1f2123', 3);
-  ellipse(hx + r * 0.45, 0, r * 0.3, r * 0.22, alpha ? '#8d9399' : '#b8bdc1', '#1f2123', 2);
-  circle(hx + r * 0.72, 0, r * 0.1, '#1d1d1d');
-  drawEyes(hx + r * 0.15, r * 0.2, r * 0.09, eyes);
+  ctx.translate(lunge / k, 0);
+  art('creatures/animals/wolf_body', fur);
+  if (alpha) art('creatures/animals/wolf_ruff');
+  ctx.restore();
+  drawEyes(r * 0.95 + lunge + r * 0.15, r * 0.2, r * 0.09, eyes);
 }
 
 function drawPig(r, lunge, angry) {
-  ellipse(0, 0, r * 1.1, r * 0.85, '#d98f8a', '#8a4e4a', 4);
-  for (const side of [-1, 1]) { // Ohren
-    ctx.beginPath();
-    ctx.moveTo(r * 0.3, side * r * 0.45);
-    ctx.lineTo(r * 0.05, side * r * 0.95);
-    ctx.lineTo(r * 0.6, side * r * 0.7);
-    ctx.closePath();
-    ctx.fillStyle = '#c47a75';
-    ctx.fill();
-    ctx.strokeStyle = '#8a4e4a';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-  const sx = r * 0.95 + lunge;
-  ellipse(sx, 0, r * 0.32, r * 0.4, '#f2b3ae', '#8a4e4a', 3); // Rüssel
-  circle(sx + r * 0.05, -r * 0.14, r * 0.08, '#8a4e4a');
-  circle(sx + r * 0.05, r * 0.14, r * 0.08, '#8a4e4a');
-  for (const side of [-1, 1]) circle(sx - r * 0.15, side * r * 0.42, r * 0.09, '#fff5e0', '#8a4e4a', 1.5); // Hauer
+  ctx.save();
+  ctx.scale(r / 24, r / 24);
+  art('creatures/animals/pig');
+  ctx.restore();
   const eye = angry ? '#d81f1f' : '#2a1a18';
   circle(r * 0.45, -r * 0.35, r * 0.1, eye);
   circle(r * 0.45, r * 0.35, r * 0.1, eye);
 }
 
 function drawBear(r, lunge, eyes) {
-  for (const side of [-1, 1]) circle(r * 0.7 + lunge, side * r * 0.75, r * 0.3, '#6b4423', '#3a2412', 3); // Pranken
-  circle(0, 0, r, '#7a4e2a', '#3a2412', 5);
-  circle(-r * 0.15, 0, r * 0.65, '#86582f');
-  const hx = r * 0.55 + lunge * 0.5;
-  for (const side of [-1, 1]) circle(hx - r * 0.1, side * r * 0.5, r * 0.2, '#6b4423', '#3a2412', 3); // Ohren
-  circle(hx, 0, r * 0.5, '#7a4e2a', '#3a2412', 3);
-  ellipse(hx + r * 0.38, 0, r * 0.24, r * 0.2, '#c9a27a', '#3a2412', 2);
-  circle(hx + r * 0.55, 0, r * 0.09, '#1d1d1d');
-  drawEyes(hx + r * 0.12, r * 0.2, r * 0.07, eyes);
+  const k = r / 36;
+  ctx.save();
+  ctx.scale(k, k);
+  for (const side of [-1, 1]) { // Pranken
+    ctx.save();
+    ctx.translate(25.2 + lunge / k, side * 27);
+    art('creatures/animals/bear_paw');
+    ctx.restore();
+  }
+  art('creatures/animals/bear_body');
+  ctx.translate((lunge * 0.5) / k, 0);
+  art('creatures/animals/bear_head');
+  ctx.restore();
+  drawEyes(r * 0.55 + lunge * 0.5 + r * 0.12, r * 0.2, r * 0.07, eyes);
 }
 
 // ---------- Spielfiguren ----------
@@ -373,8 +277,11 @@ export function drawPlayer(p) {
   ctx.rotate(isMe ? myAngle : p.da);
   const [weapon, head, chest] = p.look || [];
   drawHandsAndWeapon(cfg.EQUIPMENT[weapon], r, now - p.swingT);
-  circle(0, 0, r, isMe ? SKIN : SKIN_OTHER, SKIN_LINE, 4);
-  drawClothes(cfg.EQUIPMENT[chest], cfg.EQUIPMENT[head], r);
+  ctx.save();
+  ctx.scale(r / 24, r / 24); // assets/player ist für Radius 24 gezeichnet
+  art('player/body', { C: isMe ? SKIN : SKIN_OTHER });
+  drawClothes(cfg.EQUIPMENT[chest], cfg.EQUIPMENT[head]);
+  ctx.restore();
   ctx.restore();
 
   // Name (Teammitglieder grün), Sprechblase, Schutzblase, Leben
@@ -389,7 +296,13 @@ export function drawPlayer(p) {
 
 // Hände und Waffe je nach Waffenart; t = Sekunden seit dem letzten Angriff
 function drawHandsAndWeapon(def, r, t) {
-  const hand = (x, y, size = 0.3) => circle(x, y, r * size, SKIN, SKIN_LINE, 3);
+  const hand = (x, y, size = 0.3) => {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale((r * size) / 7.2, (r * size) / 7.2);
+    art('player/hand', { C: SKIN });
+    ctx.restore();
+  };
   const swing = t < 0.28 ? Math.sin((t / 0.28) * Math.PI) : 0;
   const kind = def ? def.kind : 'fist';
 
@@ -438,22 +351,10 @@ function drawHandsAndWeapon(def, r, t) {
   }
 }
 
-function drawClothes(chestDef, headDef, r) {
-  if (chestDef) {
-    // Shirt/Rüstung als Ring um den Körper
-    const [c, d] = ARMOR_COLORS[chestDef.tier];
-    ctx.beginPath();
-    ctx.arc(0, 0, r - 3, 0, TAU);
-    ctx.strokeStyle = c;
-    ctx.lineWidth = 7;
-    ctx.stroke();
-    circle(0, 0, r + 1, null, d, 2.5);
-  }
-  if (headDef) {
-    const [c, d] = ARMOR_COLORS[headDef.tier];
-    circle(-r * 0.12, 0, r * 0.62, c, d, 3);
-    if (headDef.tier === 1) rrect(-r * 0.12 - 3, -r * 0.62, 6, r * 1.24, 2, d); // Helmkamm
-  }
+// Getragene Kleidung von oben (assets/player/worn, Radius 24): Ring um den Körper, Helm auf dem Kopf
+function drawClothes(chestDef, headDef) {
+  if (chestDef) art(`player/worn/${chestDef.tier ? 'iron' : 'fur'}_chest`);
+  if (headDef) art(`player/worn/${headDef.tier ? 'iron' : 'fur'}_head`);
 }
 
 function drawProtectionBubble(p, r) {

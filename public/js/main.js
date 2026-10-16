@@ -22,11 +22,16 @@ import { nearForge, nearestContainer, structSize, nearWater } from './rules.js';
 import { sendInput } from './input.js';
 import { syncContainer } from './ui/windows.js';
 import { panels } from './ui/panels.js';
-import { drawHud, hotbarRects, logoutRect } from './ui/hud.js';
+import { drawHud, hotbarRects } from './ui/hud.js';
 import { overItemWindows } from './ui/inventory.js';
 import { perf, frameStart, mark, frameEnd, drawPerf } from './perf.js';
 import { renderTime, sampleAt } from './interp.js';
+import { advance as advancePrediction, predictedPosition } from './predict.js';
 import './menu.js';
+import { loadAssets } from './assets.js';
+
+// Grafiken laden (assets/manifest.json listet alle Dateien); bis dahin fehlen sie für ein paar Bilder
+fetch('assets/manifest.json').then((r) => r.json()).then(loadAssets).catch((e) => console.error('Grafiken:', e));
 
 // ---------- Bildschirm ----------
 
@@ -63,8 +68,9 @@ function frame(t) {
     return;
   }
 
-  smoothMovement();
   sendInput();
+  advancePrediction(dt);
+  smoothMovement();
   syncContainer();
   if (ui.panel === 'forge' && !nearForge()) ui.panel = null; // von der Schmiede weggelaufen
   setHovered(findHoveredStructure());
@@ -83,11 +89,13 @@ function frame(t) {
 }
 requestAnimationFrame(frame);
 
-// Figuren zeitgenau zwischen den Server-Zuständen abspielen (interp.js); die Kamera folgt der eigenen Figur
+// Figuren zeitgenau zwischen den Server-Zuständen abspielen (interp.js) – die eigene Figur dagegen dort,
+// wo die Vorhersage sie sieht (predict.js); die Kamera folgt ihr
 function smoothMovement() {
   const t = renderTime();
   for (const map of [players, zombies]) for (const e of map.values()) sampleAt(e, t);
-  const self = players.get(myId);
+  const self = players.get(myId), predicted = predictedPosition();
+  if (self && predicted) { self.dx = predicted.x; self.dy = predicted.y; }
   if (self) {
     cam.x = self.dx;
     cam.y = self.dy;
@@ -111,7 +119,7 @@ function findHoveredStructure() {
 
 function mouseOverUi() {
   const { x, y } = mouse;
-  return hotbarRects().some((r) => inRect(x, y, r)) || inRect(x, y, logoutRect()) || overItemWindows(x, y) ||
+  return hotbarRects().some((r) => inRect(x, y, r)) || overItemWindows(x, y) ||
     (!!ui.panel && inRect(x, y, panels[ui.panel].layout().panel));
 }
 

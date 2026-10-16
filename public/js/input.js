@@ -8,14 +8,15 @@ import { inRect } from './draw/primitives.js';
 import { togglePerf, togglePerfOption } from './perf.js';
 import { resize } from './main.js';
 import { toast } from './effects.js';
-import { send, logout } from './net.js';
+import { send } from './net.js';
+import { nextInput } from './predict.js';
 import { menuHasFocus } from './menu.js';
 import { chatInput, isTyping, openChat, closeChat } from './chat.js';
 import { nearForge, nearestContainer, snap, placementError, nearWater } from './rules.js';
 import { togglePanel, toggleInventory, toggleCharacter, closeAllWindows, anyWindowOpen, openContainer, closeContainer } from './ui/windows.js';
 import { panels } from './ui/panels.js';
 import { onOpen as onBuildMenuOpen } from './ui/build.js';
-import { hotbarRects, logoutRect } from './ui/hud.js';
+import { hotbarRects } from './ui/hud.js';
 import { invSlotAt, chestSlotAt, overItemWindows, dragStack } from './ui/inventory.js';
 import { eqSlotAt } from './ui/character.js';
 
@@ -41,9 +42,11 @@ const KEY_ACTIONS = {
   KeyX: demolishHovered,
   KeyG: () => togglePanel('craft'),
   F3: togglePerf,
+  // [Esc]: erst offene Fenster schließen, dann den Bau-Modus verlassen, sonst das Menü öffnen
   Escape: () => {
     if (anyWindowOpen()) closeAllWindows();
-    else ui.selected = 0;
+    else if (ui.selected) ui.selected = 0;
+    else togglePanel('esc');
   },
 };
 
@@ -145,8 +148,6 @@ canvas.addEventListener('wheel', () => {
 }, { passive: true });
 
 function leftClick(x, y, shift) {
-  if (inRect(x, y, logoutRect())) return logout();
-
   // Hotbar: Slot benutzen bzw. Bau-Button
   const hotbarSlot = hotbarRects().findIndex((r) => inRect(x, y, r));
   if (hotbarSlot >= 0 && hotbarSlot < cfg.HOTBAR_SIZE) {
@@ -280,6 +281,6 @@ export function sendInput() {
   const turned = Math.abs(myAngle - lastSent.angle) > 0.03 && now - lastSent.t > 0.05;
   if (k !== lastSent.keys || attack !== lastSent.attack || turned) {
     Object.assign(lastSent, { keys: k, angle: myAngle, attack, t: now });
-    send({ t: 'i', k, a: +myAngle.toFixed(3), m: attack });
+    send({ t: 'i', k, a: +myAngle.toFixed(3), m: attack, s: nextInput(k) });
   }
 }

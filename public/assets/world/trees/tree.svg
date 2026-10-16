@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-55 -55 110 110"><defs><radialGradient id="t1" cx="0.35" cy="0.3" r="0.75"><stop offset="0" stop-color="#3b8535"/><stop offset="0.55" stop-color="#2e6b2b"/><stop offset="1" stop-color="#1f4d1d"/></radialGradient><radialGradient id="t2" cx="0.35" cy="0.3" r="0.75"><stop offset="0" stop-color="#55a548"/><stop offset="0.55" stop-color="#3b8535"/><stop offset="1" stop-color="#2e6b2b"/></radialGradient><radialGradient id="t3" cx="0.35" cy="0.3" r="0.75"><stop offset="0" stop-color="#6cbf5a"/><stop offset="0.55" stop-color="#4b9c41"/><stop offset="1" stop-color="#3b8535"/></radialGradient></defs>
+<circle cx="0" cy="0" r="50" fill="url(#t1)" stroke="#21501f" stroke-width="5"/>
+<circle cx="-24" cy="-14" r="22" fill="#357a2f" opacity="0.55"/><circle cx="18" cy="-22" r="20" fill="#357a2f" opacity="0.55"/><circle cx="20" cy="18" r="22" fill="#357a2f" opacity="0.55"/><circle cx="-16" cy="22" r="20" fill="#357a2f" opacity="0.55"/>
+<circle cx="-6" cy="-6" r="36" fill="url(#t2)"/>
+<circle cx="-11" cy="-11" r="21" fill="url(#t3)"/>
+<g fill="#6cbf5a" opacity="0.45"><circle cx="-20" cy="-18" r="6"/><circle cx="-6" cy="-24" r="4"/></g></svg>

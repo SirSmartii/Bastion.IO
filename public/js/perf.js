@@ -7,6 +7,7 @@
 
 import { ctx, dpr } from './state.js';
 import { renderDelay } from './interp.js';
+import { stats as prediction } from './predict.js';
 
 const HISTORY = 180; // Frames im Verlauf (~3 s)
 
@@ -114,6 +115,8 @@ export function drawPerf(x, y) {
     [`Ankunft ⌀ ${gaps.avg.toFixed(1)} ms, max ${gaps.max.toFixed(1)} ms · Abspiel-Puffer ${Math.round(renderDelay() * 1000)} ms`,
       gaps.max > 60 ? '#ffb36a' : '#cfd8c0'],
     [`${(perf.net.bytes / 1024).toFixed(1)} KB pro Nachricht · JSON lesen ${perf.net.parse.toFixed(2)} ms`, '#cfd8c0'],
+    // Wie stark der Server die vorhergesagte eigene Bewegung korrigiert (predict.js) – sollte nahe 0 sein
+    [`Vorhersage: Korrektur ⌀ ${prediction.corr.toFixed(1)} · Sprünge ${prediction.snaps}`, prediction.corr > 3 ? '#ffb36a' : '#cfd8c0'],
   ];
   const rest = Math.max(0, frame.avg - perf.js);
   lines.push([`JavaScript ⌀ ${perf.js.toFixed(1)} ms pro Bild · Rest ${rest.toFixed(1)} ms (Browser/Grafikkarte)`,

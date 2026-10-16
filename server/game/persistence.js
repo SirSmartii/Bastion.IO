@@ -18,6 +18,7 @@ module.exports = {
       level: p.level, xp: p.xp, sp: p.sp, skills: p.skills, practice: p.practice, ammoPref: p.ammoPref, score: p.score, kills: p.kills,
       protectUntil: p.protectUntil, calmUntil: p.calmUntil, protectNote: p.protectNote,
       hunger: Math.round(p.hunger), thirst: Math.round(p.thirst),
+      alive: Math.floor(p.alive), bestAlive: Math.floor(p.bestAlive),
     };
   },
 
@@ -60,6 +61,8 @@ module.exports = {
     for (const [group, item] of Object.entries(d.ammoPref || {})) if (lookup(C.AMMO, group) && typeof item === 'string') p.ammoPref[group] = item;
     p.score = Math.max(0, num(d.score) | 0);
     p.kills = Math.max(0, num(d.kills) | 0);
+    p.alive = Math.max(0, num(d.alive));
+    p.bestAlive = Math.max(0, num(d.bestAlive));
     p.protectUntil = num(d.protectUntil);
     p.calmUntil = num(d.calmUntil);
     p.protectNote = num(d.protectNote, 2);

@@ -17,7 +17,7 @@ Zum Testen mit kurzem Tag: `DAY_LENGTH=10 node server.js` (PowerShell: `$env:DAY
 
 - Im Startmenü **registrieren** oder **einloggen** (Name + Passwort). Wer als **Gast** spielt, wird nicht gespeichert, und seine Basis verschwindet beim Verlassen
 - Spielstände liegen in einer SQLite-Datenbank, standardmäßig `data/bastion.db` (Pfad per `DB_PATH=…`). Tabellen: `accounts` (Passwörter mit scrypt + Salt gehasht), `characters` (Inventar, Ausrüstung, Hotbar, Level, Skills, Position …), `bases` (alle Gebäude inkl. Truhen- und Kern-Lager), `meta` (Welt-Seed und Uhrzeit)
-- **Ausloggen** über den Knopf oben links. Gespeichert wird beim Ausloggen/Trennen, automatisch alle 60 s und beim Beenden des Servers (Ctrl+C, SIGTERM)
+- **Ausloggen** im Menü (`Esc`). Gespeichert wird beim Ausloggen/Trennen, automatisch alle 60 s und beim Beenden des Servers (Ctrl+C, SIGTERM)
 - Beim nächsten Login steht der Charakter wieder an derselben Stelle. Die **Basis bleibt offline in der Welt** und unterliegt weiter Unterhalt und Verfall
 - Mit Datenbank bleibt auch die **Welt** über Neustarts gleich (Seed wird gespeichert), damit die Basen zum Gelände passen. Teams werden nicht gespeichert
 
@@ -106,7 +106,9 @@ und `DB_PATH` darauf zeigen lassen, z. B. `DB_PATH=/var/data/bastion.db`.
 - **Truhen** (Baumenü → *Basis*, max. 6): Mit `F` davor öffnen, Items per Drag & Drop oder Rechtsklick (ganzer Stapel) ein- und auslagern. Upgrades geben mehr Platz (10 → 30 Slots). Wird eine Truhe zerstört, fällt ihr Inhalt auf den Boden
 - **Chat** (`Enter`): Nachrichten erreichen nur Spieler in der Nähe (`CHAT.range`) und erscheinen als Sprechblase. `/t Nachricht` schreibt ans ganze Team, egal wie weit weg
 - **Teams** (`T`): Spieler in der Nähe einladen, Einladungen annehmen/ablehnen, Team verlassen; der Anführer kann Mitglieder entfernen (max. `TEAM.maxSize`). Teammitglieder verletzen sich nicht, gehen durch die Türen des anderen, nutzen seine Truhen, reparieren seine Gebäude und sehen sich (samt Basen) grün auf Minimap und Weltkarte
-- **Minimap**: Radar um den Spieler. Rot = feindlich, Rosa = friedliches Tier, Gelb = fremder Spieler, den du gerade sehen kannst, Grün = Team
+- **HUD** im Werkbank-Stil: oben die Überlebenszeit seit dem letzten Tod (mit Rekord, wird gespeichert), unten links Leben, Ausdauer, Hunger und Durst als Segment-Leisten samt Werten und Basis-Zustand, unten die Hotbar
+- **Menü** (`Esc`): eigene Überlebenszeit und Rekord, Spielerliste (Bestenliste), Tastenübersicht, Ausloggen. `Esc` schließt zuerst offene Fenster und verlässt den Bau-Modus
+- **Minimap**: runder Kompass oben rechts, Norden oben, Radar um den Spieler. Rot = feindlich, Rosa = friedliches Tier, Gelb = fremder Spieler, den du gerade sehen kannst, Grün = Team
 - **Weltkarte** (`M`): ganze Welt mit Biomen, Seen, Wegen, Städten, deiner Basis und Planquadraten A–J / 1–10. Fremde Spieler sind dort nicht zu sehen, nur dein Team
 - Das Baugitter erscheint nur beim Platzieren von Gebäuden rund um die Maus
 - **Leistungsanzeige** (`F3`): FPS, Frame-Zeiten mit Verlauf, Zeit pro Zeichenschritt, Server-Takt und Abspiel-Puffer
@@ -162,10 +164,26 @@ Gegner entdecken nur Spieler, die sie sehen können. Verschwindet man hinter Dec
 | `state.js` | Gemeinsamer Zustand (eigener Spieler, sichtbare Objekte, Kamera, offene Fenster) |
 | `net.js` | Verbindung, Server-Nachrichten, Delta-Updates zusammensetzen |
 | `interp.js` | Bewegung zeitgenau zwischen den Server-Zuständen abspielen (gegen Ruckeln) |
+| `predict.js` | Bewegungsvorhersage der eigenen Figur: sofort lokal bewegen, mit der Server-Position abgleichen |
+| `assets.js` | Grafiken laden (SVG), Farbvarianten einsetzen, als Zwischenbild in Bildschirmauflösung zeichnen |
 | `perf.js` | Leistungsanzeige [F3] |
 | `input.js` | Tastatur & Maus, Drag & Drop, Bauen |
 | `world.js` | Gelände & Ressourcen mit räumlichem Index |
 | `rules.js` | Spielregeln für Vorschau & Hinweise (Bauplatz, Reichweiten, Team) |
 | `menu.js`, `chat.js`, `effects.js` | Startmenü, Chat, Partikel & Meldungen |
 | `draw/` | Gelände, Gebäude & Figuren, Items, Licht, Sonnen- & Sichtschatten, Zeichen-Grundfunktionen |
-| `ui/` | HUD und je ein Modul pro Fenster (Inventar, Charakter, Schmiede, Baumenü, Fertigkeiten, Team, Karte) |
+| `ui/` | HUD, Werkbank-Optik (`theme.js`) und je ein Modul pro Fenster (Inventar, Charakter, Schmiede, Baumenü, Fertigkeiten, Team, Karte, Menü [Esc]) |
+
+### Grafiken (`public/assets/`)
+
+Alle Objekte sind eigene SVG-Dateien, thematisch sortiert. Jede Datei hat ihr Koordinatensystem (`viewBox`) in den Einheiten des Spiels – ein Gebäude ist 50 × 50 (Mitte 0/0), die Spielfigur hat Radius 24, Item-Symbole sind 40 × 40, Figuren schauen nach rechts (+x). Farbvarianten stehen als Platzhalter in der Datei (`$C` hell, `$D` dunkel, Wolf zusätzlich `$E`/`$F`, Pfeile `$T`/`$U`) und werden beim Laden ersetzt – so gibt es z. B. eine Mauer-Datei für alle fünf Stufen. **Neue Dateien in `assets/manifest.json` eintragen.**
+
+| Ordner | Inhalt |
+|---|---|
+| `items/materials`, `items/food`, `items/supplies`, `items/ammo` | Inventar-Symbole der stapelbaren Items |
+| `gear/weapons`, `gear/armor/fur`, `gear/armor/iron` | Waffen (auch in der Hand, Griff bei 0/0) und Kleidung |
+| `structures` | Gebäude; bewegte Teile extra (Geschütz, Rotor, Türblatt, Glut, Kristall) |
+| `creatures/undead`, `creatures/animals` | Untote und Tiere, Teile für Animationen (Arme, Schwanz, Pranken) |
+| `player`, `player/worn` | Spielfigur, Hände, getragene Kleidung |
+| `world/trees`, `world/rocks`, `world/plants`, `world/loot` | Bäume, Felsen & Erze, Pflanzen, Plünderbares in Städten |
+| `ui` | Symbole im HUD |

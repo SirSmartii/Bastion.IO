@@ -1,9 +1,10 @@
 // Boden, Wege, Städte, Seen, Ruinen, Ressourcen und die Basis-Zone.
 
 import { ctx, cfg, me, now, ui, mouse, screenToWorld, drawInto } from '../state.js';
-import { TAU, BIOME, ROCK_COLORS, RESOURCE_COLORS } from '../constants.js';
+import { TAU, BIOME, RESOURCE_COLORS } from '../constants.js';
 import { world, worldVersion, groundCanvas, hash2, biomeAt, ruinsIn, resScale } from '../world.js';
-import { circle, rrect, poly, hpBar, ellipse } from './primitives.js';
+import { circle, hpBar } from './primitives.js';
+import { art } from '../assets.js';
 
 // ---------- Boden ----------
 
@@ -298,14 +299,21 @@ function shakeOffset(r) {
   return t > 0.18 ? 0 : Math.sin(t * 90) * 6 * (1 - t / 0.18);
 }
 
-// Plünderbares in Städten (Kisten, Regale, Autowracks …) – je Typ eine eigene Zeichnung
+// Plünderbares in Städten (Kisten, Regale, Autowracks …): Grafiken unter assets/world/loot,
+// gezeichnet in Originalgröße; Risse zeigen, wie viel noch übrig ist
 export function drawLoot(r) {
   ctx.save();
   ctx.translate(r.x + shakeOffset(r), r.y);
   if (r.angle) ctx.rotate(r.angle);
-  (LOOT_SHAPES[r.type] || LOOT_SHAPES.crate)(r.r, r.frac);
+  const ref = LOOT_SIZE[r.type] || 20;
+  ctx.scale(r.r / ref, r.r / ref);
+  art(`world/loot/${LOOT_SIZE[r.type] ? r.type : 'crate'}`);
+  if (r.type !== 'barrel' && r.type !== 'car' && r.type !== 'shelf') cracks(ref * 0.85, r.frac);
   ctx.restore();
 }
+
+// Bezugsgröße der Grafiken (Radius in der config)
+const LOOT_SIZE = { crate: 20, shelf: 22, weapon_crate: 22, med_cabinet: 18, toolbox: 17, barrel: 16, car: 36 };
 
 // Risse, je weniger Haltbarkeit übrig ist
 function cracks(h, frac) {
@@ -318,191 +326,49 @@ function cracks(h, frac) {
   ctx.stroke();
 }
 
-const LOOT_SHAPES = {
-  // Holzkiste
-  crate(h, frac) {
-    rrect(-h, -h, h * 2, h * 2, 4, '#a8743f', '#5a3a1c', 3);
-    ctx.strokeStyle = '#6b4524';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(-h + 3, -h + 3); ctx.lineTo(h - 3, h - 3);
-    ctx.moveTo(-h, 0); ctx.lineTo(h, 0);
-    ctx.stroke();
-    cracks(h, frac);
-  },
-  // Supermarkt-Regal von oben: Metallrahmen mit bunten Waren (leert sich beim Plündern)
-  shelf(h, frac) {
-    rrect(-h, -h * 0.75, h * 2, h * 1.5, 3, '#9aa3ab', '#4b5258', 3);
-    const goods = ['#d9534f', '#f0ad4e', '#5bc0de', '#5cb85c', '#e8e1c4', '#c77dff'];
-    const n = Math.max(1, Math.round(6 * frac)), cw = (h * 2 - 10) / 3;
-    for (let i = 0; i < n; i++) rrect(-h + 5 + (i % 3) * cw, i < 3 ? -h * 0.6 : h * 0.05, cw - 3, h * 0.5, 2, goods[i]);
-  },
-  // Olivgrüne Waffenkiste mit Stern
-  weapon_crate(h, frac) {
-    rrect(-h, -h * 0.7, h * 2, h * 1.4, 3, '#4f5e3a', '#252d1a', 3);
-    for (const sx of [-h * 0.55, h * 0.55]) rrect(sx - 3, -h * 0.7, 6, h * 1.4, 1, '#30391f');
-    ctx.fillStyle = '#e8c547';
-    ctx.font = `bold ${Math.round(h * 0.7)}px Segoe UI, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('★', 0, 1);
-    ctx.textBaseline = 'alphabetic';
-    cracks(h * 0.8, frac);
-  },
-  // Weißer Medizinschrank mit rotem Kreuz
-  med_cabinet(h, frac) {
-    rrect(-h, -h, h * 2, h * 2, 4, '#eef2f0', '#8a9590', 3);
-    rrect(-h * 0.18, -h * 0.6, h * 0.36, h * 1.2, 2, '#d63a3a');
-    rrect(-h * 0.6, -h * 0.18, h * 1.2, h * 0.36, 2, '#d63a3a');
-    cracks(h, frac);
-  },
-  // Rote Werkzeugkiste mit Griff
-  toolbox(h, frac) {
-    rrect(-h, -h * 0.65, h * 2, h * 1.3, 4, '#c0392b', '#6e1d15', 3);
-    rrect(-h * 0.45, -h * 0.25, h * 0.9, h * 0.5, 3, '#2c2c2c');
-    rrect(-h * 0.35, -h * 0.12, h * 0.7, h * 0.24, 2, '#6e1d15');
-    cracks(h * 0.8, frac);
-  },
-  // Fass von oben: Deckel mit Ring, Rost nach Treffern
-  barrel(h, frac) {
-    circle(0, 0, h, '#2f6fa3', '#163650', 3);
-    ctx.strokeStyle = 'rgba(15,40,60,0.8)';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.arc(0, 0, h * 0.65, 0, TAU);
-    ctx.stroke();
-    circle(h * 0.3, -h * 0.3, h * 0.15, '#163650');
-    if (frac < 1) circle(-h * 0.35, h * 0.25, h * 0.22 * (1.5 - frac), 'rgba(120,70,30,0.8)');
-  },
-  // Autowrack von oben (Front zeigt nach +x): verblichener Lack, Scheiben, Rost, Reifen
-  car(h, frac) {
-    const L = h * 1.15, B = h * 0.62;
-    for (const sx of [-L * 0.6, L * 0.6]) for (const sy of [-B - 1, B + 1]) rrect(sx - 9, sy - 4, 18, 8, 2, '#1d1d1d');
-    rrect(-L, -B, L * 2, B * 2, B * 0.55, '#7d5a4a', '#3a2820', 3);
-    rrect(-L * 0.35, -B * 0.82, L * 0.95, B * 1.64, B * 0.35, '#6a4c3e'); // Dach
-    rrect(L * 0.38, -B * 0.72, L * 0.3, B * 1.44, 4, 'rgba(120,150,165,0.75)', '#2a2a2a', 2); // Frontscheibe
-    rrect(-L * 0.62, -B * 0.66, L * 0.22, B * 1.32, 4, 'rgba(120,150,165,0.6)', '#2a2a2a', 2); // Heckscheibe
-    for (const [rx, ry, rr] of [[-L * 0.1, B * 0.4, 7], [L * 0.6, -B * 0.5, 5], [-L * 0.8, -B * 0.2, 6]]) {
-      circle(rx, ry, rr * (1.6 - frac), 'rgba(140,70,30,0.7)');
-    }
-  },
-};
-
-// Fels, Gold, Eisen und Kohle: gleiche Form, unterschiedliche Farben und Einschlüsse
+// Fels, Gold, Eisen und Kohle (assets/world/rocks, Radius 40) – je nach ID gedreht, damit nicht alle gleich aussehen
 export function drawRock(r) {
-  const [base, edge, top, vein, veinEdge] = ROCK_COLORS[r.type] || ROCK_COLORS.rock, k = resScale(r);
+  const k = (resScale(r) * r.r) / 40;
   ctx.save();
   ctx.translate(r.x + shakeOffset(r), r.y);
+  ctx.rotate((r.id * 2.399) % TAU);
   ctx.scale(k, k);
-  poly(r.pts);
-  ctx.fillStyle = base;
-  ctx.fill();
-  ctx.strokeStyle = edge;
-  ctx.lineWidth = 5;
-  ctx.stroke();
-  poly(r.pts, 0.55);
-  ctx.fillStyle = top;
-  ctx.fill();
-  if (r.type === 'gold') {
-    for (let i = 0; i < 4; i++) {
-      const [px, py] = r.pts[i * 2];
-      circle(px * 0.45, py * 0.45, r.r * 0.18, vein, veinEdge, 3);
-    }
-  } else if (vein) {
-    // Eisen: rostige Adern, Kohle: schwarze Brocken
-    for (let i = 0; i < 5; i++) {
-      const [px, py] = r.pts[(i * 3) % 8];
-      const s = r.r * (r.type === 'coal' ? 0.2 : 0.14);
-      ctx.save();
-      ctx.translate(px * 0.5, py * 0.5);
-      ctx.rotate(i * 1.3);
-      rrect(-s, -s * 0.6, s * 2, s * 1.2, s * 0.4, vein, veinEdge, 2);
-      ctx.restore();
-    }
-  }
+  art(`world/rocks/${r.type}`);
   ctx.restore();
 }
 
+// Baumkrone (assets/world/trees, Radius 50)
 export function drawTree(r) {
-  const k = resScale(r), apple = r.type === 'apple_tree';
+  const k = (resScale(r) * r.r) / 50;
+  ctx.save();
+  ctx.translate(r.x + shakeOffset(r), r.y);
+  ctx.rotate((r.id * 1.7) % TAU);
+  ctx.scale(k, k);
+  art(`world/trees/${r.type}`);
+  ctx.restore();
+}
+
+// Beerenbusch & Gemüse (assets/world/plants): ernten mit jedem Schlag – je weniger übrig, desto weniger Beeren
+const PLANT_SIZE = { berry_bush: 25, carrot: 16, potato: 16, corn: 19, pumpkin: 21 };
+export function drawPlant(r) {
+  const k = (resScale(r) * r.r) / PLANT_SIZE[r.type];
   ctx.save();
   ctx.translate(r.x + shakeOffset(r), r.y);
   ctx.scale(k, k);
-  circle(0, 0, r.r, apple ? '#3c7a2e' : '#2e6b2b', '#21501f', 5);
-  circle(-r.r * 0.12, -r.r * 0.12, r.r * 0.72, apple ? '#4a9038' : '#3b8535');
-  circle(-r.r * 0.22, -r.r * 0.22, r.r * 0.42, apple ? '#5aa646' : '#4b9c41');
-  if (apple) {
-    // Äpfel in der Krone, Lage aus der ID abgeleitet
-    for (let i = 0; i < 7; i++) {
-      const a = i * 2.4 + r.id, d = r.r * (0.35 + ((i * 37 + r.id) % 5) * 0.11);
-      circle(Math.cos(a) * d, Math.sin(a) * d, r.r * 0.1, '#d8322c', '#7a1612', 2);
+  if (r.type !== 'berry_bush') ctx.rotate((r.id * 2.1) % TAU);
+  art(`world/plants/${r.type}`);
+  if (r.type === 'berry_bush') {
+    const berries = Math.ceil(9 * r.frac);
+    for (let i = 0; i < berries; i++) {
+      const a = i * 2.1 + r.id, d = 25 * (0.25 + (i % 3) * 0.25);
+      ctx.save();
+      ctx.translate(Math.cos(a) * d, Math.sin(a) * d);
+      art('world/plants/berry');
+      ctx.restore();
     }
   }
   ctx.restore();
 }
-
-// Beerenbusch & Gemüse: ernten mit jedem Schlag, je weniger übrig, desto weniger Früchte
-export function drawPlant(r) {
-  const k = resScale(r);
-  ctx.save();
-  ctx.translate(r.x + shakeOffset(r), r.y);
-  ctx.scale(k, k);
-  (PLANT_SHAPES[r.type] || (() => {}))(r.r, r.frac, r.id);
-  ctx.restore();
-}
-
-const leaf = (x, y, len, w, a, color) => {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(a);
-  ellipse(len / 2, 0, len / 2, w, color, 'rgba(20,50,15,0.6)', 1.5);
-  ctx.restore();
-};
-
-const PLANT_SHAPES = {
-  berry_bush(h, frac, id) {
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * TAU + id;
-      circle(Math.cos(a) * h * 0.45, Math.sin(a) * h * 0.45, h * 0.62, i % 2 ? '#3f7d33' : '#4a8c3b', '#2a5522', 2.5);
-    }
-    circle(0, 0, h * 0.55, '#559a43');
-    const berries = Math.ceil(9 * frac);
-    for (let i = 0; i < berries; i++) {
-      const a = i * 2.1 + id, d = h * (0.25 + (i % 3) * 0.25);
-      circle(Math.cos(a) * d, Math.sin(a) * d, h * 0.13, '#3b4bd6', '#1b2370', 1.5);
-    }
-  },
-  carrot(h, frac) {
-    for (let i = 0; i < 5; i++) leaf(0, 0, h * 1.1, h * 0.18, (i / 5) * TAU + 0.3, '#5fae3c');
-    circle(0, 0, h * 0.32, '#f08a24', '#9a4f0c', 2);
-    if (frac > 0.5) circle(h * 0.2, h * 0.15, h * 0.22, '#f39a3c', '#9a4f0c', 1.5);
-  },
-  potato(h, frac) {
-    for (let i = 0; i < 7; i++) leaf(0, 0, h * (0.8 + (i % 2) * 0.3), h * 0.3, (i / 7) * TAU, i % 2 ? '#4f8a35' : '#5c9a3f');
-    circle(0, 0, h * 0.3, '#6aa848');
-    for (let i = 0; i < Math.ceil(3 * frac); i++) circle(-h * 0.5 + i * h * 0.45, h * 0.75, h * 0.2, '#b08850', '#6e5028', 1.5);
-  },
-  corn(h, frac) {
-    for (const [ox, oy] of [[-h * 0.4, -h * 0.3], [h * 0.35, -h * 0.25], [0, h * 0.4]]) {
-      for (let i = 0; i < 4; i++) leaf(ox, oy, h * 0.9, h * 0.14, i * 1.6 + ox, '#7fb447');
-      circle(ox, oy, h * 0.16, '#6e9a3a', '#3f5d1f', 1.5);
-    }
-    for (let i = 0; i < Math.ceil(3 * frac); i++) {
-      ctx.save();
-      ctx.rotate(i * 2.1 + 0.4);
-      ellipse(h * 0.45, 0, h * 0.3, h * 0.14, '#f2d24a', '#9a7a14', 1.5);
-      ctx.restore();
-    }
-  },
-  pumpkin(h, frac) {
-    leaf(-h * 0.2, -h * 0.4, h * 1.1, h * 0.35, -2.4, '#4e8a34');
-    leaf(h * 0.3, -h * 0.3, h, h * 0.3, -0.6, '#5a9a3c');
-    const s = 0.6 + 0.4 * frac;
-    for (const ox of [-0.45, 0.45]) ellipse(ox * h * s, 0, h * 0.5 * s, h * 0.75 * s, '#e07a22', '#8a4510', 2);
-    ellipse(0, 0, h * 0.55 * s, h * 0.8 * s, '#ee8a2b', '#8a4510', 2.5);
-    rrect(-h * 0.08, -h * 0.95 * s, h * 0.16, h * 0.3, 2, '#6a5020');
-  },
-};
 
 // Kleine Vorratsleiste über kürzlich abgebauten Ressourcen
 export function drawResourceBar(r) {

@@ -14,6 +14,7 @@ import { dragStack } from './ui/inventory.js';
 import { resize } from './main.js';
 import { netMessage, setServerStats } from './perf.js';
 import { onServerTick, addSample, resetInterpolation } from './interp.js';
+import { reconcile, resetPrediction } from './predict.js';
 
 let ws = null;
 let loggingOut = false;
@@ -68,6 +69,7 @@ function resetGame() {
   clearChat();
   clearEffects();
   resetInterpolation();
+  resetPrediction();
 }
 
 function onMessage(m) {
@@ -92,6 +94,7 @@ function applyState(m) {
   const firstState = !me;
   if (m.ms) slowState = m.ms;
   setMe({ ...slowState, ...m.me });
+  reconcile();
   setClock(m.tm);
   setProjectiles(m.pr);
   if (m.lb) setLeaderboard(m.lb, m.on);

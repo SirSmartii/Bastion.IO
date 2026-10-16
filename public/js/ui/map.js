@@ -57,6 +57,9 @@ function buildCache(size) {
   }
 }
 
+// Auch im Tod offen lassen (hud.js)
+export const whileDead = true;
+
 export function draw() {
   const S = Math.floor(Math.min(W - 80, H - 130)), x = Math.round((W - S) / 2), y = Math.round((H - S) / 2 + 12);
   const WS = cfg.WORLD_SIZE, k = S / WS;

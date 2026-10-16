@@ -33,13 +33,6 @@ export const RES_HEIGHT = {
 export const RUIN_HEIGHT = 40;
 export const STRUCT_HEIGHT = { core: 60, wall: 42, door: 30, window: 42, spike: 10, turret: 55, mine: 28, forge: 38, storage: 26, furnace: 44, campfire: 12 };
 
-// Farben der Gesteinsarten [Fels, Rand, helle Oberseite, Einschlüsse, Rand der Einschlüsse]
-export const ROCK_COLORS = {
-  rock: ['#8b9196', '#5a6065', '#a6acb1', null, null],
-  gold: ['#7a7166', '#4f483f', '#958b7f', '#f4c63d', '#a67c12'],
-  iron: ['#7d736c', '#4a413b', '#968c84', '#c0703e', '#6e3a1c'],
-  coal: ['#5b5b5e', '#2e2e31', '#727276', '#1b1b1d', '#0b0b0c'],
-};
 // Partikel- und Leistenfarbe je Ressource
 export const RESOURCE_COLORS = {
   apple_tree: '#3b8535', berry_bush: '#4f8f3a', carrot: '#f08a24', potato: '#b08850', corn: '#f2d24a', pumpkin: '#e8892b',

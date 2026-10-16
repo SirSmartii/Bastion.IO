@@ -217,6 +217,8 @@ module.exports = {
 
     p.dead = true;
     p.hp = 0;
+    p.bestAlive = Math.max(p.bestAlive, p.alive);
+    p.alive = 0;
     p.respawnT = C.PLAYER.respawnTime;
     p.chest = 0;
     // Ein Teil des Inventars fällt als Beute auf den Boden – Ausrüstung als ganze Einzelstücke (samt Daten)

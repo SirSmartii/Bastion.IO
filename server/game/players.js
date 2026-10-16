@@ -128,8 +128,9 @@ module.exports = {
       id: acc ? ACCOUNT_ID_BASE + acc.id : uid(), account: acc ? acc.id : 0, kind: 'p', conn, name,
       x: 0, y: 0, r: P.radius, br: P.radius, angle: 0,
       hp: P.hp, maxHp: P.hp, dead: false, respawnT: 0, lastHurt: -99,
+      alive: 0, bestAlive: 0, // Sekunden seit dem letzten Tod und längstes Überleben bisher
       // Eingabe & Angriff
-      keys: 0, attacking: false, atkCd: 0, swings: 0,
+      keys: 0, attacking: false, atkCd: 0, swings: 0, inSeq: 0, inTicks: 0,
       // Ausdauer, Hunger & Durst
       stamina: P.stamina, sprinting: false, exhausted: false, sprintStop: -99,
       hunger: C.SURVIVAL.max, thirst: C.SURVIVAL.max, starveT: 0, needNote: {}, drinkT: -99,
@@ -258,6 +259,7 @@ module.exports = {
       if (p.respawnT <= 0) this.respawn(p);
       return;
     }
+    p.alive += dt;
     this.movePlayer(p, dt);
     if (p.chest && !this.canUseChest(p, this.structures.get(p.chest))) p.chest = 0;
     this.pickupItems(p);
@@ -319,6 +321,7 @@ module.exports = {
   // Tastenbits: 1 hoch, 2 runter, 4 links, 8 rechts, 16 sprinten
   movePlayer(p, dt) {
     const P = C.PLAYER, k = p.keys;
+    p.inTicks++;
     const mx = (k & 8 ? 1 : 0) - (k & 4 ? 1 : 0), my = (k & 2 ? 1 : 0) - (k & 1 ? 1 : 0);
     const moving = mx !== 0 || my !== 0;
 
