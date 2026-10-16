@@ -55,6 +55,14 @@ function remove(inv, item, n) {
   return n;
 }
 
+// Wie viele Stück von item noch hineinpassen
+function space(inv, item) {
+  const max = stackOf(item);
+  let n = 0;
+  for (const s of inv) n += !s ? max : s.item === item ? max - s.n : 0;
+  return n;
+}
+
 const canAfford = (inv, cost) => Object.entries(cost).every(([k, v]) => count(inv, k) >= v);
 
 function pay(inv, cost) {
@@ -117,4 +125,4 @@ function take(inv, slot, n) {
   return { item: s.item, n: k };
 }
 
-module.exports = { create, count, totals, add, remove, canAfford, pay, move, transfer, quickMove, take, stackOf };
+module.exports = { create, count, totals, add, remove, space, canAfford, pay, move, transfer, quickMove, take, stackOf };

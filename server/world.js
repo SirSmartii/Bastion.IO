@@ -1,5 +1,5 @@
 'use strict';
-// Weltgenerator: Biome (Rauschen), Städte mit Ruinen & Kisten, Feldwege, Seen.
+// Weltgenerator: Biome (Rauschen), Städte mit Gebäuden, Kisten & Autowracks, Feldwege, Seen.
 // Alles hängt nur vom Seed ab – gleiche Welt bei gleichem Seed.
 
 const C = require('./config');
@@ -42,10 +42,14 @@ function segDist(px, py, ax, ay, bx, by) {
   return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
 }
 
-// Eine Ruinenstadt: Straßenraster (Zellen der Größe cityBlock), Häuser nur innerhalb der Zellen
-// mit Abstand zur Straße. Die Hauptstraßen durch die Mitte enden an vier Stadttoren.
+// Eine Ruinenstadt: Straßenraster (Zellen der Größe cityBlock), je Zelle höchstens ein Gebäude mit Abstand
+// zur Straße. Gebäudetypen (Wohnhaus, Supermarkt, Polizei …) bestimmen Größe, Einrichtung und Beute.
+// Auf den Straßen stehen Autowracks und Fässer. Die Hauptstraßen durch die Mitte enden an vier Stadttoren.
+//
+// Ergebnis: buildings [x, y, Breite, Höhe, Typ], ruins [x, y, Variante] (Mauerkacheln),
+// crates [x, y, Kistentyp, Winkel] (alles Plünderbare), streets [[x, y], [x, y]]
 function makeCity(rng, x, y, name) {
-  const M = C.MAP, T = C.TILE, B = M.cityBlock, R = M.cityRadius, m = M.streetMargin;
+  const M = C.MAP, T = C.TILE, B = M.cityBlock, R = M.cityRadius;
   x = Math.round(x / T) * T;
   y = Math.round(y / T) * T;
   const city = { x, y, r: R, name, buildings: [], ruins: [], crates: [], streets: [] };
@@ -58,38 +62,114 @@ function makeCity(rng, x, y, name) {
     city.streets.push([[Math.round(x - L), y + k * B], [Math.round(x + L), y + k * B]]);
   }
   city.gates = [[x + R, y], [x - R, y], [x, y + R], [x, y - R]];
-  const maxTiles = Math.floor((B - 2 * m) / T);
+
+  // Bauplätze (Straßenzellen) in zufälliger Reihenfolge; ein Teil bleibt leer
+  const lots = [];
   for (let i = -cells; i < cells; i++) {
     for (let j = -cells; j < cells; j++) {
       const cx0 = x + i * B, cy0 = y + j * B;
-      if (Math.hypot(cx0 + B / 2 - x, cy0 + B / 2 - y) > R - 150) continue;
-      if (rng() < 0.2) continue;
-      const w = 4 + Math.floor(rng() * (maxTiles - 3)), h = 4 + Math.floor(rng() * (maxTiles - 3));
-      const ox = cx0 + m + Math.floor(rng() * (maxTiles - w + 1)) * T;
-      const oy = cy0 + m + Math.floor(rng() * (maxTiles - h + 1)) * T;
-      city.buildings.push([ox, oy, w * T, h * T]);
-      // Eingang: 2 Kacheln breite Lücke auf einer zufälligen Seite
-      const side = Math.floor(rng() * 4), len = side % 2 ? h : w, door = 1 + Math.floor(rng() * (len - 3));
-      for (let i = 0; i < w; i++) {
-        for (let j = 0; j < h; j++) {
-          const edge = i === 0 || j === 0 || i === w - 1 || j === h - 1;
-          if (!edge) continue;
-          const corner = (i === 0 || i === w - 1) && (j === 0 || j === h - 1);
-          const along = side === 0 ? (j === 0 ? i : -1) : side === 2 ? (j === h - 1 ? i : -1) : side === 1 ? (i === w - 1 ? j : -1) : (i === 0 ? j : -1);
-          if (along === door || along === door + 1) continue;
-          if (!corner && rng() < M.ruinDecay) continue; // verfallene Stelle
-          city.ruins.push([ox + i * T + T / 2, oy + j * T + T / 2, Math.floor(rng() * 4)]);
-        }
-      }
-      // Kisten im Inneren
-      const nCrates = 1 + Math.floor(rng() * 2);
-      for (let k = 0; k < nCrates; k++) {
-        const ci = 1 + Math.floor(rng() * (w - 2)), cj = 1 + Math.floor(rng() * (h - 2));
-        city.crates.push([ox + ci * T + T / 2, oy + cj * T + T / 2]);
+      if (Math.hypot(cx0 + B / 2 - x, cy0 + B / 2 - y) > R - 150 || rng() < 0.2) continue;
+      lots.push([cx0, cy0]);
+    }
+  }
+  shuffle(lots, rng);
+  // Erst je ein Sondergebäude, danach nach Gewicht
+  const types = Object.keys(M.buildings), specials = types.filter((t) => M.buildings[t].special);
+  lots.forEach((lot, n) => addBuilding(city, rng, lot, n < specials.length ? specials[n] : pickWeighted(rng, types)));
+  addStreetProps(city, rng);
+  return city;
+}
+
+function shuffle(list, rng) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const k = Math.floor(rng() * (i + 1));
+    [list[i], list[k]] = [list[k], list[i]];
+  }
+}
+
+function pickWeighted(rng, types) {
+  const B = C.MAP.buildings;
+  let roll = rng() * types.reduce((sum, t) => sum + B[t].weight, 0);
+  for (const t of types) if ((roll -= B[t].weight) < 0) return t;
+  return types[0];
+}
+
+// Gebäude auf einem Bauplatz: Mauern mit Eingang (2 Kacheln), Regale, Kisten
+function addBuilding(city, rng, [cx0, cy0], type) {
+  const M = C.MAP, T = C.TILE, def = M.buildings[type];
+  const maxTiles = Math.floor((M.cityBlock - 2 * M.streetMargin) / T);
+  const size = () => Math.min(maxTiles, def.size[0] + Math.floor(rng() * (def.size[1] - def.size[0] + 1)));
+  const w = size(), h = size();
+  const ox = cx0 + M.streetMargin + Math.floor(rng() * (maxTiles - w + 1)) * T;
+  const oy = cy0 + M.streetMargin + Math.floor(rng() * (maxTiles - h + 1)) * T;
+  city.buildings.push([ox, oy, w * T, h * T, type]);
+  const at = (i, j) => [ox + i * T + T / 2, oy + j * T + T / 2];
+
+  // Eingang auf einer zufälligen Seite: Lücke in der Mauer und die Kacheln direkt dahinter bleiben frei
+  const side = Math.floor(rng() * 4), len = side % 2 ? h : w, door = 1 + Math.floor(rng() * (len - 3));
+  const doorTiles = [];
+  for (const k of [door, door + 1]) {
+    if (side === 0) doorTiles.push([k, 0], [k, 1]);
+    else if (side === 2) doorTiles.push([k, h - 1], [k, h - 2]);
+    else if (side === 1) doorTiles.push([w - 1, k], [w - 2, k]);
+    else doorTiles.push([0, k], [1, k]);
+  }
+  const used = new Set(doorTiles.map(([i, j]) => i + ',' + j));
+
+  for (let i = 0; i < w; i++) {
+    for (let j = 0; j < h; j++) {
+      const edge = i === 0 || j === 0 || i === w - 1 || j === h - 1;
+      if (!edge || used.has(i + ',' + j)) continue;
+      const corner = (i === 0 || i === w - 1) && (j === 0 || j === h - 1);
+      if (!corner && rng() < M.ruinDecay) continue; // verfallene Stelle
+      city.ruins.push([...at(i, j), Math.floor(rng() * 4)]);
+    }
+  }
+
+  // Supermarkt: Regalreihen in jeder zweiten Zeile, abwechselnd links/rechts ein Durchgang
+  if (def.shelves) {
+    for (let j = 2, row = 0; j < h - 1; j += 2, row++) {
+      const gap = row % 2 ? 1 : w - 2;
+      for (let i = 1; i < w - 1; i++) {
+        if (i === gap || used.has(i + ',' + j)) continue;
+        used.add(i + ',' + j);
+        city.crates.push([...at(i, j), 'shelf', 0]);
       }
     }
   }
-  return city;
+  // Kisten auf freien Innenkacheln
+  const free = [];
+  for (let i = 1; i < w - 1; i++) for (let j = 1; j < h - 1; j++) if (!used.has(i + ',' + j)) free.push([i, j]);
+  shuffle(free, rng);
+  for (const [kind, min, max] of def.loot) {
+    const n = min + Math.floor(rng() * (max - min + 1));
+    for (let k = 0; k < n && free.length; k++) city.crates.push([...at(...free.pop()), kind, 0]);
+  }
+}
+
+// Autowracks auf den Fahrspuren (nicht auf Kreuzungen oder dem Marktplatz) und Fässer am Straßenrand
+function addStreetProps(city, rng) {
+  const M = C.MAP, B = M.cityBlock, half = (M.streetMargin * 1.5) / 2;
+  const placed = [];
+  const place = (kind, lane, minGap) => {
+    for (let tries = 0; tries < 40; tries++) {
+      const [[ax, ay], [bx, by]] = city.streets[Math.floor(rng() * city.streets.length)];
+      const vertical = ax === bx, t = rng();
+      const along = vertical ? ay + (by - ay) * t : ax + (bx - ax) * t;
+      const fromCrossing = Math.abs(((along - (vertical ? city.y : city.x)) % B + B) % B - B / 2);
+      if (fromCrossing > B / 2 - 90) continue; // zu nah an einer Kreuzung
+      const off = (rng() < 0.5 ? -1 : 1) * lane;
+      const px = vertical ? ax + off : along, py = vertical ? along : ay + off;
+      if (Math.hypot(px - city.x, py - city.y) < 180 || Math.hypot(px - city.x, py - city.y) > city.r - 60) continue;
+      if (placed.some(([qx, qy]) => Math.hypot(qx - px, qy - py) < minGap)) continue;
+      placed.push([px, py]);
+      const angle = (vertical ? Math.PI / 2 : 0) + (rng() < 0.5 ? Math.PI : 0) + (rng() - 0.5) * 0.35;
+      city.crates.push([Math.round(px), Math.round(py), kind, kind === 'car' ? +angle.toFixed(2) : 0]);
+      return;
+    }
+  };
+  for (let n = 0; n < M.cityCars; n++) place('car', half / 2, 140);
+  for (let n = 0; n < M.cityBarrels; n++) place('barrel', half - 6, 60);
 }
 
 function generateWorld(seed) {
@@ -103,7 +183,9 @@ function generateWorld(seed) {
     const edge = M.cityRadius + 250;
     const x = edge + rng() * (W - 2 * edge), y = edge + rng() * (W - 2 * edge);
     if (cities.some((c) => Math.hypot(c.x - x, c.y - y) < M.citySpacing)) continue;
-    cities.push(makeCity(rng, x, y, names[cities.length % names.length]));
+    // Eigener Zufall pro Stadt: Änderungen am Stadtinhalt verschieben nicht den Rest der Welt
+    const cityRng = mulberry32((seed * 7919 + cities.length * 104729) | 0);
+    cities.push(makeCity(cityRng, x, y, names[cities.length % names.length]));
   }
 
   // Feldwege: minimaler Spannbaum (Prim) zwischen den Städten, leicht gewunden

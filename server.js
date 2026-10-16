@@ -60,16 +60,25 @@ server.on('upgrade', (req, socket) => {
   acceptWebSocket(req, socket, (conn) => game.onConnection(conn));
 });
 
-let last = process.hrtime.bigint();
-let tick = 0;
+// Spielschleife mit festen Schritten: Timer wecken unter Windows nur alle ~15,6 ms auf (setInterval(16,7)
+// ergibt dort abwechselnd 16 und 31 ms). Darum oft nachsehen und so viele 1/TICK_RATE-Schritte rechnen,
+// wie seit dem letzten Mal fällig sind. Die Clients spielen die Zustände anhand der Tick-Nummer ab,
+// unregelmäßiges Ankommen stört dann nicht.
+const STEP = 1 / C.TICK_RATE;
 const sendEvery = Math.max(1, Math.round(C.TICK_RATE / C.SEND_RATE));
+let last = process.hrtime.bigint(), behind = 0;
 setInterval(() => {
   const now = process.hrtime.bigint();
-  const dt = Math.min(Number(now - last) / 1e9, 0.1);
+  behind = Math.min(behind + Number(now - last) / 1e9, STEP * 5); // nach einem Hänger nicht endlos aufholen
   last = now;
-  game.update(dt);
-  if (++tick % sendEvery === 0) game.sendState();
-}, 1000 / C.TICK_RATE);
+  while (behind >= STEP) {
+    behind -= STEP;
+    const t0 = process.hrtime.bigint();
+    game.update(STEP);
+    if (game.tick % sendEvery === 0) game.sendState();
+    game.recordTickTime(Number(process.hrtime.bigint() - t0) / 1e6);
+  }
+}, 4);
 
 server.listen(C.PORT, () => {
   console.log(`Server läuft auf http://localhost:${C.PORT}`);

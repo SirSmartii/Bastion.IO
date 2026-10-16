@@ -14,6 +14,7 @@ class WsConnection extends EventEmitter {
     this.open = true;
     this.buf = Buffer.alloc(0);
     this.fragments = [];
+    this.fragmentBytes = 0;
     socket.on('data', (d) => this._onData(d));
     socket.on('close', () => this._closed());
     socket.on('error', () => this._closed());
@@ -42,6 +43,7 @@ class WsConnection extends EventEmitter {
         off = 10;
       }
       if (len > MAX_PAYLOAD) return this.close();
+      if (!masked) return this.close(); // Clients müssen laut RFC 6455 maskieren
       const maskLen = masked ? 4 : 0;
       if (this.buf.length < off + maskLen + len) return;
 
@@ -56,10 +58,14 @@ class WsConnection extends EventEmitter {
       if (op === 0x9) { this._frame(0xa, payload); continue; }
       if (op === 0xa) continue;
       if (op === 0x0 || op === 0x1 || op === 0x2) {
+        // Auch eine in viele Teile zerlegte Nachricht darf insgesamt nicht größer werden
+        this.fragmentBytes += payload.length;
+        if (this.fragmentBytes > MAX_PAYLOAD) return this.close();
         this.fragments.push(payload);
         if (fin) {
           const msg = Buffer.concat(this.fragments).toString('utf8');
           this.fragments = [];
+          this.fragmentBytes = 0;
           this.emit('message', msg);
         }
       }

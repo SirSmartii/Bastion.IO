@@ -39,20 +39,40 @@ module.exports = {
 
   INVENTORY: {
     slots: 20,
-    stack: { wood: 250, stone: 250, gold: 150, bone: 100, scrap: 50, fur: 50, meat: 30, arrow_wood: 100, arrow_stone: 100, arrow_iron: 100, bullet: 120, shell: 60 }, // maximale Stapelgröße pro Slot
+    stack: { wood: 250, stone: 250, gold: 150, bone: 100, scrap: 50, fur: 50, meat: 30, iron_ore: 100, coal: 100, iron: 100, can: 20, bandage: 10, berries: 40, apple: 20, carrot: 20, potato: 20, corn: 20, pumpkin: 10, cooked_meat: 20, baked_potato: 20, roasted_corn: 20, bottle: 5, water: 5, arrow_wood: 100, arrow_stone: 100, arrow_iron: 100, bullet: 120, shell: 60 }, // maximale Stapelgröße pro Slot
   },
 
   ITEMS: {
-    names: { wood: 'Holz', stone: 'Stein', gold: 'Gold', bone: 'Knochen', scrap: 'Schrott', fur: 'Fell', meat: 'Fleisch', arrow_wood: 'Holzpfeil', arrow_stone: 'Steinpfeil', arrow_iron: 'Metallpfeil', bullet: 'Patrone', shell: 'Schrotpatrone' },
-    food: { meat: 30 }, // essbar: HP-Heilung pro Stück
+    names: { wood: 'Holz', stone: 'Stein', gold: 'Gold', bone: 'Knochen', scrap: 'Schrott', fur: 'Fell', meat: 'Fleisch', iron_ore: 'Eisenerz', coal: 'Kohle', iron: 'Eisenbarren', can: 'Konserve', bandage: 'Verband', berries: 'Beeren', apple: 'Apfel', carrot: 'Karotte', potato: 'Kartoffel', corn: 'Maiskolben', pumpkin: 'Kürbis', cooked_meat: 'Gebratenes Fleisch', baked_potato: 'Ofenkartoffel', roasted_corn: 'Gerösteter Mais', bottle: 'Leere Feldflasche', water: 'Feldflasche (Wasser)', arrow_wood: 'Holzpfeil', arrow_stone: 'Steinpfeil', arrow_iron: 'Metallpfeil', bullet: 'Patrone', shell: 'Schrotpatrone' },
+    // Verbrauchbar ([H] oder Rechtsklick): food = Sättigung, water = Durst, hp = Leben (negativ schadet),
+    // returns = was danach im Inventar bleibt. Rohes wird am Lagerfeuer gar (STRUCTURES.campfire.cook).
+    food: {
+      meat: { food: 8, hp: -4 }, // roh – besser braten
+      cooked_meat: { food: 35, hp: 10 },
+      berries: { food: 5, water: 4 },
+      apple: { food: 10, water: 8 },
+      carrot: { food: 10, water: 4 },
+      potato: { food: 6 },
+      baked_potato: { food: 26, hp: 5 },
+      corn: { food: 8 },
+      roasted_corn: { food: 22, hp: 3 },
+      pumpkin: { food: 18, water: 10 },
+      can: { food: 30, water: 5, hp: 5 },
+      water: { water: 40, returns: 'bottle' },
+      bandage: { hp: 45 },
+    },
     eatCooldown: 1,
-    // Stapelbare Items aus der Schmiede: amount Stück pro Herstellung
+    // Stapelbare Items aus der Schmiede: amount Stück pro Herstellung.
+    // hand: auch unterwegs ohne Schmiede herstellbar (Handwerk [G]) – gilt genauso für EQUIPMENT-Rezepte
     recipes: {
-      arrow_wood: { tab: 'ranged', amount: 10, forge: 1, cost: { wood: 12 } },
-      arrow_stone: { tab: 'ranged', amount: 10, forge: 1, cost: { wood: 10, stone: 8 } },
-      arrow_iron: { tab: 'ranged', amount: 10, forge: 2, cost: { wood: 10, scrap: 2 } },
-      bullet: { tab: 'guns', amount: 12, forge: 2, cost: { scrap: 1, gold: 3, stone: 4 } },
-      shell: { tab: 'guns', amount: 8, forge: 3, cost: { scrap: 1, gold: 4 } },
+      arrow_wood: { tab: 'ranged', amount: 10, forge: 1, hand: true, cost: { wood: 12 } },
+      arrow_stone: { tab: 'ranged', amount: 10, forge: 1, hand: true, cost: { wood: 10, stone: 8 } },
+      bandage: { tab: 'supplies', amount: 1, forge: 1, hand: true, cost: { fur: 2 } },
+      bottle: { tab: 'supplies', amount: 1, forge: 1, hand: true, cost: { fur: 2, bone: 1 } }, // am See füllen [F]
+      arrow_iron: { tab: 'ranged', amount: 10, forge: 2, cost: { wood: 10, iron: 1 } },
+      // Kohle ist das Schießpulver, Eisen die Hülse
+      bullet: { tab: 'guns', amount: 12, forge: 2, cost: { iron: 1, coal: 3 } },
+      shell: { tab: 'guns', amount: 8, forge: 3, cost: { iron: 1, coal: 4, gold: 2 } },
     },
     pickupRadius: 40,
     despawn: 180, // Sekunden, bis Items am Boden verschwinden
@@ -65,7 +85,7 @@ module.exports = {
     seed: +process.env.SEED || 0, // 0 = bei jedem Serverstart neue Welt
     biomeCell: 100, // Auflösung des Biom-Rasters
     cities: 6,
-    cityRadius: 920,
+    cityRadius: 1120,
     cityBlock: 450, // Zellgröße des Straßenrasters (Vielfaches von TILE)
     streetMargin: 75, // Abstand der Häuser zur Straßenmitte
     citySpacing: 3000,
@@ -74,30 +94,100 @@ module.exports = {
     cityZombies: 5, // Zombies, die in einer Stadt mit Spielern in der Nähe herumlaufen (+ pro Tag)
     cityZombiesPerDay: 2,
     noBuildMargin: 250, // Abstand zur Stadtgrenze, ab dem gebaut werden darf
+    // Gebäudetypen. Jede Stadt bekommt (wenn Platz ist) je eines der Sondergebäude, der Rest nach weight.
+    // size: Kantenlänge in Kacheln [min, max] (max 6 = eine ganze Straßenzelle), floor: Bodenfarbe,
+    // sign: Symbol auf Schild & Karte, loot: [Kistentyp, min, max] im Inneren, shelves: Regalreihen
+    buildings: {
+      house: { name: 'Wohnhaus', weight: 10, size: [4, 6], floor: '#8d8472', loot: [['crate', 1, 2]] },
+      supermarket: {
+        name: 'Supermarkt', special: true, weight: 0.5, size: [6, 6], floor: '#a8a28f', sign: '🛒', shelves: true, loot: [['crate', 0, 1]],
+      },
+      police: { name: 'Polizei', special: true, weight: 0.4, size: [5, 6], floor: '#6d7887', sign: '🚓', loot: [['weapon_crate', 1, 2], ['crate', 0, 1]] },
+      pharmacy: { name: 'Apotheke', special: true, weight: 0.5, size: [4, 5], floor: '#a3b8ad', sign: '✚', loot: [['med_cabinet', 2, 3]] },
+      workshop: { name: 'Werkstatt', special: true, weight: 0.7, size: [5, 6], floor: '#7b7262', sign: '🔧', loot: [['toolbox', 1, 2], ['barrel', 1, 2]] },
+    },
+    cityCars: 9, // Autowracks auf den Straßen jeder Stadt
+    cityBarrels: 8, // Fässer am Straßenrand
+  },
+
+  // Sichtlinien: Bäume, Felsen, Mauern und Ruinen verdecken, was dahinter steht.
+  // Spieler und Gegner hinter Deckung werden nicht an den Client geschickt, Gegner entdecken nur,
+  // wen sie sehen. RESOURCES[*].sight = Anteil des Radius, der die Sicht blockiert (0 = durchsichtig),
+  // STRUCTURES[*].blocksSight = Gebäude verdeckt die Sicht.
+  SIGHT: {
+    near: 110, // so nah sieht (und spürt) man alles, auch hinter Deckung
+    memory: 4, // Sekunden, die ein Gegner der letzten bekannten Position eines Spielers folgt
+    recheck: 3, // Sichtprüfung pro Paar nur alle n Sendungen (dazwischen gilt das letzte Ergebnis)
   },
 
   // amount: Vorrat [min, max] – leer abgebaut zerfällt die Ressource und wächst nach respawn Sekunden woanders nach.
   // bonus: Extra-Beute für den Spieler, der den letzten Schlag macht
   // biomes: relative Häufigkeit je Biom (grass, forest, rocky, sand, meadow, urban)
+  // hard: Gestein – Spitzhacken bauen es mit ihrem mine-Wert ab. tool: nötiger Abbau-Wert (sonst kein Ertrag)
+  // solid: Anteil des Radius, an dem Spieler abprallen; enemySolid: dasselbe für Gegner (Standard: solid).
+  //   Bei Bäumen ist das für Gegner fast die ganze Krone – sie kommen nicht durch dichten Wald, Spieler schon.
   RESOURCES: {
     tree: {
-      count: 1000, minR: 42, maxR: 62, solid: 0.7, gives: 'wood', amount: [60, 110], respawn: 60, bonus: { wood: 10 },
+      count: 1000, minR: 42, maxR: 62, solid: 0.7, enemySolid: 0.85, sight: 0.9, gives: 'wood', amount: [60, 110], respawn: 60, bonus: { wood: 10 },
       biomes: { grass: 0.5, forest: 7, rocky: 0.2, sand: 0.1, meadow: 0.25, urban: 0 },
     },
     rock: {
-      count: 600, minR: 34, maxR: 50, solid: 0.9, gives: 'stone', amount: [80, 140], respawn: 90, bonus: { stone: 10 },
+      count: 600, minR: 34, maxR: 50, solid: 0.9, sight: 0.9, hard: true, gives: 'stone', amount: [80, 140], respawn: 90, bonus: { stone: 10 },
       biomes: { grass: 1, forest: 0.5, rocky: 6, sand: 0.4, meadow: 0.6, urban: 0 },
     },
     gold: {
-      count: 190, minR: 28, maxR: 38, solid: 0.9, gives: 'gold', amount: [30, 60], respawn: 150, bonus: { gold: 5 },
+      count: 190, minR: 28, maxR: 38, solid: 0.9, sight: 0.9, hard: true, gives: 'gold', amount: [30, 60], respawn: 150, bonus: { gold: 5 },
       biomes: { grass: 0.4, forest: 0.3, rocky: 5, sand: 0.2, meadow: 0.3, urban: 0 },
     },
-    // Kisten in Städten: count 0 (der Weltgenerator platziert sie), amount = Schläge bis sie brechen
+    // Eisenerz: nur mit Werkzeug ab Abbau 2 (Steinaxt, Spitzhacke …), im Schmelzofen zu Eisenbarren
+    iron: {
+      count: 170, minR: 30, maxR: 42, solid: 0.9, sight: 0.9, hard: true, tool: 2, gives: 'iron_ore', amount: [40, 70], respawn: 180,
+      bonus: { iron_ore: 4 },
+      biomes: { grass: 0.8, forest: 0.5, rocky: 5, sand: 1, meadow: 0.4, urban: 0 },
+    },
+    // Kohle: Brennstoff für den Schmelzofen und Schießpulver für Munition
+    coal: {
+      count: 220, minR: 30, maxR: 44, solid: 0.9, sight: 0.9, hard: true, gives: 'coal', amount: [50, 90], respawn: 150,
+      bonus: { coal: 6 },
+      biomes: { grass: 0.8, forest: 2, rocky: 3, sand: 0.2, meadow: 0.6, urban: 0 },
+    },
+    // Pflanzen: pick = Ernten ohne Werkzeug, 1 Stück pro Schlag (egal womit). Abgeerntet wachsen sie woanders nach.
+    // Apfelbäume sind Bäume (Holz), die bei jedem Schlag mit fruit.chance einen Apfel fallen lassen.
+    // Büsche sind begehbar (solid 0), verdecken aber ein wenig die Sicht – man kann sich darin ducken.
+    apple_tree: {
+      count: 160, minR: 40, maxR: 52, solid: 0.7, enemySolid: 0.85, sight: 0.9, gives: 'wood', amount: [40, 70], respawn: 90, bonus: { wood: 6, apple: 3 },
+      fruit: { item: 'apple', chance: 0.35 },
+      biomes: { grass: 2, forest: 0.6, rocky: 0, sand: 0, meadow: 3, urban: 0 },
+    },
+    berry_bush: {
+      count: 280, minR: 22, maxR: 28, solid: 0, sight: 0.7, pick: true, gives: 'berries', amount: [4, 8], respawn: 90,
+      biomes: { grass: 1.5, forest: 3, rocky: 0.2, sand: 0, meadow: 2, urban: 0 },
+    },
+    carrot: {
+      count: 90, minR: 15, maxR: 17, solid: 0, sight: 0, pick: true, gives: 'carrot', amount: [2, 3], respawn: 120,
+      biomes: { grass: 1.5, forest: 0.2, rocky: 0, sand: 0.1, meadow: 3, urban: 0 },
+    },
+    potato: {
+      count: 90, minR: 15, maxR: 17, solid: 0, sight: 0, pick: true, gives: 'potato', amount: [2, 4], respawn: 120,
+      biomes: { grass: 2, forest: 0.3, rocky: 0.5, sand: 0.3, meadow: 2, urban: 0 },
+    },
+    corn: {
+      count: 80, minR: 18, maxR: 20, solid: 0, sight: 0.6, pick: true, gives: 'corn', amount: [2, 3], respawn: 120,
+      biomes: { grass: 2, forest: 0, rocky: 0, sand: 0.5, meadow: 2.5, urban: 0 },
+    },
+    pumpkin: {
+      count: 60, minR: 20, maxR: 22, solid: 0, sight: 0, pick: true, gives: 'pumpkin', amount: [1, 2], respawn: 150,
+      biomes: { grass: 1.5, forest: 0.5, rocky: 0, sand: 0, meadow: 2, urban: 0 },
+    },
+    // Kisten & Co. in Städten: count 0 (der Weltgenerator platziert sie), amount = Schläge bis sie brechen,
+    // loot wird beim Aufbrechen gewürfelt, danach kommen sie an derselben Stelle wieder
     crate: {
-      count: 0, minR: 20, maxR: 20, solid: 0.95, gives: null, amount: [3, 3], respawn: 120,
+      count: 0, minR: 20, maxR: 20, solid: 0.95, sight: 1, gives: null, amount: [3, 3], respawn: 120,
       loot: [
         { item: 'gold', chance: 0.8, min: 4, max: 12 },
         { item: 'scrap', chance: 0.55, min: 1, max: 3 },
+        { item: 'coal', chance: 0.35, min: 3, max: 8 },
+        { item: 'iron', chance: 0.15, min: 1, max: 3 },
         { item: 'arrow_wood', chance: 0.35, min: 5, max: 15 },
         { item: 'arrow_stone', chance: 0.2, min: 3, max: 8 },
         { item: 'bullet', chance: 0.3, min: 4, max: 10 },
@@ -110,6 +200,79 @@ module.exports = {
         { item: 'dagger_gold', chance: 0.04, min: 1, max: 1 },
         { item: 'fur_boots', chance: 0.05, min: 1, max: 1 },
         { item: 'iron_hat', chance: 0.02, min: 1, max: 1 },
+        { item: 'can', chance: 0.25, min: 1, max: 2 },
+        { item: 'water', chance: 0.15, min: 1, max: 1 },
+        { item: 'potato', chance: 0.15, min: 1, max: 3 },
+      ],
+    },
+    // Supermarkt-Regal: Konserven & Vorräte
+    shelf: {
+      count: 0, minR: 22, maxR: 22, solid: 0.95, sight: 1, gives: null, amount: [2, 2], respawn: 150,
+      loot: [
+        { item: 'can', chance: 0.9, min: 1, max: 3 },
+        { item: 'water', chance: 0.45, min: 1, max: 2 },
+        { item: 'bottle', chance: 0.2, min: 1, max: 1 },
+        { item: 'apple', chance: 0.25, min: 1, max: 3 },
+        { item: 'meat', chance: 0.2, min: 1, max: 2 },
+        { item: 'bandage', chance: 0.12, min: 1, max: 1 },
+        { item: 'fur', chance: 0.15, min: 1, max: 2 },
+        { item: 'coal', chance: 0.15, min: 2, max: 4 },
+      ],
+    },
+    // Polizei: Waffen & Munition
+    weapon_crate: {
+      count: 0, minR: 22, maxR: 22, solid: 0.95, sight: 1, gives: null, amount: [5, 5], respawn: 240,
+      loot: [
+        { item: 'bullet', chance: 0.75, min: 6, max: 14 },
+        { item: 'shell', chance: 0.45, min: 4, max: 8 },
+        { item: 'arrow_iron', chance: 0.3, min: 5, max: 10 },
+        { item: 'pistol', chance: 0.12, min: 1, max: 1 },
+        { item: 'shotgun', chance: 0.05, min: 1, max: 1 },
+        { item: 'rifle', chance: 0.02, min: 1, max: 1 },
+        { item: 'iron_hat', chance: 0.1, min: 1, max: 1 },
+        { item: 'iron_shirt', chance: 0.05, min: 1, max: 1 },
+        { item: 'bandage', chance: 0.25, min: 1, max: 2 },
+      ],
+    },
+    // Apotheke: Verbände
+    med_cabinet: {
+      count: 0, minR: 18, maxR: 18, solid: 0.95, sight: 0, gives: null, amount: [2, 2], respawn: 180,
+      loot: [
+        { item: 'bandage', chance: 0.9, min: 1, max: 3 },
+        { item: 'can', chance: 0.2, min: 1, max: 1 },
+      ],
+    },
+    // Werkstatt: Schrott, Eisen, Werkzeug
+    toolbox: {
+      count: 0, minR: 17, maxR: 17, solid: 0.95, sight: 0, gives: null, amount: [3, 3], respawn: 180,
+      loot: [
+        { item: 'scrap', chance: 0.85, min: 2, max: 5 },
+        { item: 'iron', chance: 0.5, min: 1, max: 4 },
+        { item: 'coal', chance: 0.35, min: 2, max: 6 },
+        { item: 'pick_stone', chance: 0.06, min: 1, max: 1 },
+        { item: 'pick_iron', chance: 0.03, min: 1, max: 1 },
+        { item: 'axe_stone', chance: 0.05, min: 1, max: 1 },
+      ],
+    },
+    // Fässer am Straßenrand (wie in Rust: schnell zerschlagen, Kleinkram)
+    barrel: {
+      count: 0, minR: 16, maxR: 16, solid: 0.95, sight: 0, gives: null, amount: [2, 2], respawn: 120,
+      loot: [
+        { item: 'scrap', chance: 0.6, min: 1, max: 3 },
+        { item: 'coal', chance: 0.45, min: 2, max: 5 },
+        { item: 'iron_ore', chance: 0.25, min: 2, max: 4 },
+        { item: 'bullet', chance: 0.15, min: 3, max: 6 },
+        { item: 'can', chance: 0.15, min: 1, max: 1 },
+      ],
+    },
+    // Autowracks: viele Schläge, viel Schrott & Eisen; man kann sich dahinter verstecken
+    car: {
+      count: 0, minR: 36, maxR: 36, solid: 0.9, sight: 0.85, gives: null, amount: [7, 7], respawn: 300,
+      loot: [
+        { item: 'scrap', chance: 1, min: 3, max: 7 },
+        { item: 'iron', chance: 0.6, min: 2, max: 5 },
+        { item: 'coal', chance: 0.25, min: 2, max: 4 },
+        { item: 'bullet', chance: 0.1, min: 3, max: 8 },
       ],
     },
   },
@@ -117,7 +280,8 @@ module.exports = {
 
   // Ausrüstung: jedes Teil ist ein eigenes Item (Stapelgröße 1) und passt in genau einen Slot.
   // stats werden auf die Grundwerte addiert; eine Waffe ersetzt damage/gather/attackSpeed/reach der Faust.
-  // kind: axe | sword | dagger | spear | bow | gun.
+  // kind: axe | pick | sword | dagger | spear | bow | gun. Spitzhacken (pick) bauen Gestein (RESOURCES[*].hard)
+  //   mit ihrem mine-Wert ab, alles andere mit gather. color: eigene Farbe [hell, dunkel] statt der Stufenfarbe.
   // Fernwaffen: ammo = Munitionsgruppe (siehe AMMO), range = Schussweite,
   //   projectile: speed, pellets (Kugeln pro Schuss), spread (Streuung in rad).
   //   noise: Schüsse locken Gegner in diesem Umkreis an.
@@ -134,7 +298,7 @@ module.exports = {
     axe_wood: { name: 'Holzaxt', slot: 'weapon', kind: 'axe', tab: 'axes', tier: 0, stats: { damage: 12, gather: 1 } },
     axe_stone: {
       name: 'Steinaxt', slot: 'weapon', kind: 'axe', tab: 'axes', tier: 1, stats: { damage: 18, gather: 2 },
-      recipe: { forge: 1, cost: { wood: 80, stone: 50 } },
+      recipe: { forge: 1, hand: true, cost: { wood: 80, stone: 50 } },
     },
     axe_gold: {
       name: 'Goldaxt', slot: 'weapon', kind: 'axe', tab: 'axes', tier: 2, stats: { damage: 26, gather: 3 },
@@ -149,6 +313,17 @@ module.exports = {
       recipe: { forge: 4, cost: { stone: 700, gold: 400, bone: 50, scrap: 15, fur: 15 } },
     },
 
+    // Spitzhacken: schwach an Bäumen, stark an Fels, Gold, Eisen und Kohle
+    pick_stone: {
+      name: 'Steinspitzhacke', slot: 'weapon', kind: 'pick', tab: 'axes', tier: 1, stats: { damage: 14, gather: 1, mine: 3 },
+      recipe: { forge: 1, hand: true, cost: { wood: 70, stone: 60 } },
+    },
+    pick_iron: {
+      name: 'Eisenspitzhacke', slot: 'weapon', kind: 'pick', tab: 'axes', tier: 1, color: ['#c9d1d9', '#5d6670'],
+      stats: { damage: 20, gather: 1, mine: 6 },
+      recipe: { forge: 2, cost: { wood: 80, iron: 20 } },
+    },
+
     // Schwerter: viel Schaden, schlecht zum Abbauen
     sword_stone: {
       name: 'Steinschwert', slot: 'weapon', kind: 'sword', tab: 'melee', tier: 1,
@@ -160,6 +335,11 @@ module.exports = {
       stats: { damage: 36, gather: 1, attackSpeed: 2.3, reach: 88 },
       recipe: { forge: 2, cost: { stone: 120, gold: 60, bone: 10 } },
     },
+    sword_iron: {
+      name: 'Eisenschwert', slot: 'weapon', kind: 'sword', tab: 'melee', tier: 2, color: ['#c9d1d9', '#5d6670'],
+      stats: { damage: 42, gather: 1, attackSpeed: 2.3, reach: 90 },
+      recipe: { forge: 2, cost: { wood: 30, iron: 25, fur: 2 } },
+    },
     sword_diamond: {
       name: 'Diamantschwert', slot: 'weapon', kind: 'sword', tab: 'melee', tier: 3,
       stats: { damage: 52, gather: 1, attackSpeed: 2.4, reach: 92 },
@@ -169,7 +349,7 @@ module.exports = {
     dagger_stone: {
       name: 'Steindolch', slot: 'weapon', kind: 'dagger', tab: 'melee', tier: 1,
       stats: { damage: 10, gather: 1, attackSpeed: 4.5, reach: 58 },
-      recipe: { forge: 1, cost: { wood: 20, stone: 40 } },
+      recipe: { forge: 1, hand: true, cost: { wood: 20, stone: 40 } },
     },
     dagger_gold: {
       name: 'Golddolch', slot: 'weapon', kind: 'dagger', tab: 'melee', tier: 2,
@@ -180,7 +360,7 @@ module.exports = {
     spear_wood: {
       name: 'Holzspeer', slot: 'weapon', kind: 'spear', tab: 'melee', tier: 0,
       stats: { damage: 15, gather: 1, attackSpeed: 1.6, reach: 125 },
-      recipe: { forge: 1, cost: { wood: 70, bone: 4 } },
+      recipe: { forge: 1, hand: true, cost: { wood: 70, bone: 4 } },
     },
     spear_gold: {
       name: 'Goldspeer', slot: 'weapon', kind: 'spear', tab: 'melee', tier: 2,
@@ -192,7 +372,7 @@ module.exports = {
       name: 'Holzbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', tier: 0,
       ammo: 'arrow', projectile: { speed: 950 },
       stats: { damage: 14, gather: 0, attackSpeed: 1.3, range: 520 },
-      recipe: { forge: 1, cost: { wood: 60, fur: 3 } },
+      recipe: { forge: 1, hand: true, cost: { wood: 60, fur: 3 } },
     },
     bow_composite: {
       name: 'Kompositbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', tier: 3,
@@ -205,24 +385,24 @@ module.exports = {
       name: 'Pistole', slot: 'weapon', kind: 'gun', model: 'pistol', tab: 'guns', tier: 1,
       ammo: 'bullet', projectile: { speed: 1500, spread: 0.05 }, noise: 600,
       stats: { damage: 24, gather: 0, attackSpeed: 2.4, range: 620 },
-      recipe: { forge: 2, cost: { scrap: 6, gold: 40, wood: 20 } },
+      recipe: { forge: 2, cost: { iron: 15, scrap: 3, wood: 20 } },
     },
     shotgun: {
       name: 'Schrotflinte', slot: 'weapon', kind: 'gun', model: 'shotgun', tab: 'guns', tier: 2,
       ammo: 'shell', projectile: { speed: 1300, pellets: 7, spread: 0.3 }, noise: 750,
       stats: { damage: 13, gather: 0, attackSpeed: 1.0, range: 360 },
-      recipe: { forge: 3, cost: { scrap: 12, gold: 80, wood: 40 } },
+      recipe: { forge: 3, cost: { iron: 30, scrap: 6, wood: 40 } },
     },
     rifle: {
       name: 'Gewehr', slot: 'weapon', kind: 'gun', model: 'rifle', tab: 'guns', tier: 3,
       ammo: 'bullet', projectile: { speed: 1900, spread: 0.01 }, noise: 900,
       stats: { damage: 62, gather: 0, attackSpeed: 0.85, range: 1000 },
-      recipe: { forge: 4, cost: { scrap: 20, gold: 150, wood: 60 } },
+      recipe: { forge: 4, cost: { iron: 50, scrap: 12, wood: 60 } },
     },
 
     fur_hat: {
       name: 'Fellmütze', slot: 'head', tab: 'armor', tier: 0, stats: { armor: 3, regen: 0.5 },
-      recipe: { forge: 1, cost: { fur: 4, bone: 2 } },
+      recipe: { forge: 1, hand: true, cost: { fur: 4, bone: 2 } },
     },
     fur_shirt: {
       name: 'Fellhemd', slot: 'chest', tab: 'armor', tier: 0, stats: { armor: 6, maxHp: 15 },
@@ -234,23 +414,23 @@ module.exports = {
     },
     fur_boots: {
       name: 'Fellstiefel', slot: 'feet', tab: 'armor', tier: 0, stats: { armor: 2, speed: 20, stamina: 25 },
-      recipe: { forge: 1, cost: { fur: 4, bone: 1 } },
+      recipe: { forge: 1, hand: true, cost: { fur: 4, bone: 1 } },
     },
     iron_hat: {
       name: 'Eisenhelm', slot: 'head', tab: 'armor', tier: 1, stats: { armor: 8, maxHp: 10 },
-      recipe: { forge: 3, cost: { scrap: 6, fur: 2, gold: 30 } },
+      recipe: { forge: 2, cost: { iron: 12, fur: 2 } },
     },
     iron_shirt: {
       name: 'Eisenrüstung', slot: 'chest', tab: 'armor', tier: 1, stats: { armor: 16, maxHp: 40, speed: -15 },
-      recipe: { forge: 3, cost: { scrap: 12, fur: 4, gold: 60 } },
+      recipe: { forge: 2, cost: { iron: 25, fur: 4 } },
     },
     iron_pants: {
       name: 'Eisenbeinschutz', slot: 'legs', tab: 'armor', tier: 1, stats: { armor: 11, maxHp: 20, speed: -5 },
-      recipe: { forge: 3, cost: { scrap: 8, fur: 3, gold: 45 } },
+      recipe: { forge: 2, cost: { iron: 18, fur: 3 } },
     },
     iron_boots: {
       name: 'Eisenstiefel', slot: 'feet', tab: 'armor', tier: 1, stats: { armor: 5, speed: 10, stamina: 15 },
-      recipe: { forge: 3, cost: { scrap: 5, fur: 2, gold: 25 } },
+      recipe: { forge: 2, cost: { iron: 10, fur: 2 } },
     },
   },
 
@@ -271,11 +451,12 @@ module.exports = {
   },
 
   FORGE_TABS: [
-    { id: 'axes', name: 'Äxte' },
+    { id: 'axes', name: 'Werkzeug' },
     { id: 'melee', name: 'Nahkampf' },
     { id: 'ranged', name: 'Bögen' },
     { id: 'guns', name: 'Feuerwaffen' },
     { id: 'armor', name: 'Kleidung' },
+    { id: 'supplies', name: 'Vorräte' },
   ],
 
   BUILD_CATEGORIES: [
@@ -286,51 +467,53 @@ module.exports = {
 
   // levels[0] = Baukosten, levels[n] = Kosten für Upgrade auf Level n+1.
   // Nicht-Kern-Gebäude können maximal das Level des eigenen Kerns erreichen.
+  // size: Kantenlänge in Kacheln (Zahl = quadratisch, [Breite, Höhe] = rechteckig). Gebäude lassen sich
+  // beim Bauen mit [R] in 90°-Schritten drehen; bei rechteckigen tauschen Breite und Höhe.
   STRUCTURES: {
     core: {
-      name: 'Basis-Kern', size: 2, category: 'base', useRange: 190,
+      name: 'Basis-Kern', size: [2, 1], category: 'base', useRange: 190, blocksSight: true,
       desc: 'Herz deiner Basis. Bestimmt Bauradius & Gebäude-Limit. Lager [F] für den Unterhalt.',
       // slots = Plätze im Unterhalts-Lager (nur UPKEEP.items)
       levels: [
         { hp: 1200, radius: 300, maxStructures: 20, slots: 10, cost: { wood: 40, stone: 20 } },
         { hp: 2200, radius: 380, maxStructures: 35, slots: 12, cost: { wood: 200, stone: 150 } },
         { hp: 3500, radius: 460, maxStructures: 50, slots: 15, cost: { wood: 400, stone: 350, gold: 80 } },
-        { hp: 5500, radius: 540, maxStructures: 70, slots: 18, cost: { stone: 700, gold: 250 } },
-        { hp: 8000, radius: 620, maxStructures: 90, slots: 20, cost: { stone: 1200, gold: 600 } },
+        { hp: 5500, radius: 540, maxStructures: 70, slots: 18, cost: { stone: 700, gold: 250, iron: 40 } },
+        { hp: 8000, radius: 620, maxStructures: 90, slots: 20, cost: { stone: 1200, gold: 600, iron: 120 } },
       ],
     },
     wall: {
-      name: 'Mauer', size: 1, category: 'defense',
+      name: 'Mauer', size: 1, category: 'defense', blocksSight: true,
       desc: 'Hält Gegner auf. Günstig, aber viel HP.',
       levels: [
         { hp: 250, cost: { wood: 10 } },
         { hp: 600, cost: { wood: 10, stone: 15 } },
         { hp: 1200, cost: { stone: 30, gold: 5 } },
-        { hp: 2200, cost: { stone: 50, gold: 20 } },
-        { hp: 3600, cost: { stone: 80, gold: 50 } },
+        { hp: 2200, cost: { stone: 50, gold: 15, iron: 4 } },
+        { hp: 3600, cost: { stone: 80, gold: 30, iron: 10 } },
       ],
     },
     // Tür: nur der Besitzer läuft hindurch. Fenster: niemand läuft hindurch, aber Pfeile fliegen durch.
     door: {
-      name: 'Tür', size: 1, category: 'defense', passOwner: true,
+      name: 'Tür', size: 1, category: 'defense', passOwner: true, blocksSight: true,
       desc: 'Nur du kannst hindurchgehen – Gegner müssen sie einschlagen.',
       levels: [
         { hp: 220, cost: { wood: 15 } },
         { hp: 520, cost: { wood: 15, stone: 15 } },
         { hp: 1050, cost: { stone: 30, gold: 5 } },
-        { hp: 1900, cost: { stone: 50, gold: 20 } },
-        { hp: 3100, cost: { stone: 80, gold: 50 } },
+        { hp: 1900, cost: { stone: 50, gold: 15, iron: 4 } },
+        { hp: 3100, cost: { stone: 80, gold: 30, iron: 10 } },
       ],
     },
     window: {
       name: 'Fenster', size: 1, category: 'defense', shootThrough: true,
-      desc: 'Blockiert wie eine Mauer, aber Pfeile fliegen hindurch.',
+      desc: 'Blockiert wie eine Mauer, aber man sieht und schießt hindurch.',
       levels: [
         { hp: 160, cost: { wood: 12, stone: 4 } },
         { hp: 420, cost: { wood: 10, stone: 15 } },
         { hp: 850, cost: { stone: 30, gold: 5 } },
-        { hp: 1500, cost: { stone: 50, gold: 20 } },
-        { hp: 2500, cost: { stone: 80, gold: 50 } },
+        { hp: 1500, cost: { stone: 50, gold: 15, iron: 4 } },
+        { hp: 2500, cost: { stone: 80, gold: 30, iron: 10 } },
       ],
     },
     spike: {
@@ -346,39 +529,65 @@ module.exports = {
     },
     turret: {
       name: 'Turm', size: 1, category: 'defense',
-      desc: 'Schießt automatisch auf Gegner in Reichweite.',
+      desc: 'Schießt automatisch auf Gegner, die er sehen kann.',
       levels: [
         { hp: 200, dmg: 8, range: 280, rate: 1.2, cost: { wood: 40, stone: 25 } },
         { hp: 450, dmg: 13, range: 320, rate: 1.5, cost: { wood: 60, stone: 60 } },
         { hp: 800, dmg: 20, range: 360, rate: 1.8, cost: { stone: 100, gold: 25 } },
-        { hp: 1300, dmg: 30, range: 400, rate: 2.2, cost: { stone: 150, gold: 60 } },
-        { hp: 2000, dmg: 45, range: 450, rate: 2.6, cost: { stone: 220, gold: 120 } },
+        { hp: 1300, dmg: 30, range: 400, rate: 2.2, cost: { stone: 150, gold: 40, iron: 15 } },
+        { hp: 2000, dmg: 45, range: 450, rate: 2.6, cost: { stone: 220, gold: 80, iron: 35 } },
       ],
     },
     mine: {
-      name: 'Mine', size: 1, limit: 4, interval: 5, category: 'economy',
-      desc: 'Fördert regelmäßig Stein & Gold.',
+      name: 'Mine', size: 1, limit: 4, interval: 5, category: 'economy', blocksSight: true,
+      desc: 'Fördert regelmäßig Stein & Gold, ab Stufe 3 auch Kohle und Eisenerz.',
       levels: [
         { hp: 200, income: { stone: 2, gold: 1 }, cost: { wood: 60, stone: 40 } },
         { hp: 400, income: { stone: 3, gold: 2 }, cost: { wood: 100, stone: 80 } },
-        { hp: 700, income: { stone: 5, gold: 3 }, cost: { stone: 150, gold: 30 } },
-        { hp: 1100, income: { stone: 7, gold: 5 }, cost: { stone: 250, gold: 80 } },
-        { hp: 1600, income: { stone: 10, gold: 8 }, cost: { stone: 400, gold: 160 } },
+        { hp: 700, income: { stone: 5, gold: 3, coal: 1 }, cost: { stone: 150, gold: 30 } },
+        { hp: 1100, income: { stone: 7, gold: 5, coal: 2, iron_ore: 1 }, cost: { stone: 250, gold: 80 } },
+        { hp: 1600, income: { stone: 10, gold: 8, coal: 3, iron_ore: 2 }, cost: { stone: 400, gold: 160, iron: 20 } },
       ],
     },
     forge: {
-      name: 'Schmiede', size: 1, limit: 1, useRange: 180, category: 'base',
+      name: 'Schmiede', size: 1, limit: 1, useRange: 180, category: 'base', blocksSight: true,
       desc: 'Stelle hier Äxte & Kleidung her [F].',
       levels: [
         { hp: 400, cost: { wood: 80, stone: 60 } },
         { hp: 800, cost: { stone: 120, gold: 20 } },
         { hp: 1300, cost: { stone: 200, gold: 60, bone: 10 } },
-        { hp: 2000, cost: { stone: 300, gold: 120, scrap: 5 } },
+        { hp: 2000, cost: { stone: 300, gold: 120, scrap: 5, iron: 30 } },
       ],
+    },
+    // Schmelzofen: Behälter wie eine Truhe. Liegen Erz und Kohle darin, entsteht alle time Sekunden
+    // ein Eisenbarren (smelt.cost → smelt.out). Läuft auch, wenn der Besitzer offline ist.
+    furnace: {
+      name: 'Schmelzofen', size: 1, limit: 2, useRange: 150, category: 'economy', blocksSight: true,
+      desc: 'Schmilzt Eisenerz mit Kohle zu Eisenbarren. Öffnen mit [F].',
+      accepts: ['iron_ore', 'coal', 'iron'], // nur diese Items passen hinein
+      smelt: { cost: { iron_ore: 2, coal: 1 }, out: 'iron' },
+      levels: [
+        { hp: 400, slots: 6, time: 4, cost: { wood: 40, stone: 120 } },
+        { hp: 800, slots: 8, time: 3, cost: { stone: 150, iron: 10 } },
+        { hp: 1300, slots: 10, time: 2.2, cost: { stone: 200, gold: 40, iron: 25 } },
+        { hp: 2000, slots: 12, time: 1.6, cost: { stone: 300, gold: 80, iron: 50 } },
+        { hp: 2800, slots: 14, time: 1.2, cost: { stone: 450, gold: 150, iron: 80 } },
+      ],
+    },
+    // Lagerfeuer: auch unterwegs ohne Basis baubar (anywhere, zählt nicht zum Gebäude-Limit). Brennt, solange
+    // Holz darin liegt (1 Holz pro burnTime Sekunden), leuchtet nachts und verscheucht Tiere im Umkreis
+    // WILDLIFE.fireScare – nur rasend hungrige nicht. Alle time Sekunden wird ein Stück gar (cook: roh → gar).
+    campfire: {
+      name: 'Lagerfeuer', size: 1, limit: 2, useRange: 150, category: 'base', anywhere: true,
+      desc: 'Brät Fleisch & Gemüse und verscheucht Tiere, solange Holz darin brennt [F].',
+      fuel: 'wood', burnTime: 10,
+      cook: { meat: 'cooked_meat', potato: 'baked_potato', corn: 'roasted_corn' },
+      accepts: ['wood', 'meat', 'potato', 'corn', 'cooked_meat', 'baked_potato', 'roasted_corn'],
+      levels: [{ hp: 150, slots: 6, time: 5, cost: { wood: 30, stone: 10 } }],
     },
     // Truhe: Lager für Items. slots = Plätze pro Level; nutzbar für Besitzer und Teammitglieder.
     storage: {
-      name: 'Truhe', size: 1, limit: 6, useRange: 150, category: 'base',
+      name: 'Truhe', size: 1, limit: 6, useRange: 150, category: 'base', blocksSight: true,
       desc: 'Lagert Items sicher in deiner Basis. Öffnen mit [F] (auch fürs Team).',
       levels: [
         { hp: 300, slots: 10, cost: { wood: 50, stone: 10 } },
@@ -428,9 +637,16 @@ module.exports = {
   },
 
   // Gegner & Tiere.
-  // ai: 'zombie' (nachts Basen angreifen), 'pack' (Rudel, jagt Spieler),
+  // ai: 'zombie' (Untote, nachts wilder), 'pack' (Rudel, jagt Spieler),
   //     'neutral' (friedlich, wehrt sich), 'territorial' (greift nur in der Nähe an)
   // spawn: Gewichtung tagsüber/nachts, + perDay pro Tag (bis max). pack: Gruppengröße [min, max]
+  // Rudel: Der Erste ist der Alpha (alpha: Faktoren für Leben, Schaden, Größe; dunkles Fell), die anderen folgen ihm.
+  // predator: Raubtier mit Hunger von 1 (satt) bis 0, sinkt in hungerTime [min, max] Sekunden. Bei 0 wird es
+  //   rasend: Es jagt im Umkreis range das schwächste Wesen, das es sieht – Spieler, Zombies und andere Tiere,
+  //   nie die eigene Art, nie Gebäude – und ignoriert Lagerfeuer. Jeder Biss bringt bite, eine erlegte Beute
+  //   macht satt; ab calm hört die Raserei auf. Beim Rudel teilen sich alle den Hunger. rageSpeed: Tempo-Faktor beim Rasen.
+  // cap: höchstens near Tiere (bzw. Rudel) im Umkreis WILDLIFE.capRadius um einen Spieler und perPlayer pro
+  //   Spieler online. habitat: Biome, in denen die Art spawnt.
   // drops: jeder Eintrag wird einzeln gewürfelt (chance 0..1, Menge min..max)
   ENEMIES: {
     normal: {
@@ -456,11 +672,14 @@ module.exports = {
         { item: 'gold', chance: 1, min: 5, max: 10 },
         { item: 'bone', chance: 0.8, min: 2, max: 4 },
         { item: 'scrap', chance: 0.5, min: 1, max: 2 },
+        { item: 'iron_ore', chance: 0.4, min: 2, max: 4 },
       ],
     },
     wolf: {
       name: 'Wolf', ai: 'pack', hp: 45, speed: 175, dmg: 7, sdmg: 5, r: 20, score: 15, xp: 10, aggro: 480,
-      pack: [2, 4], spawn: { day: 18, night: 12 },
+      pack: [3, 5], alpha: { hp: 1.6, dmg: 1.3, r: 1.2 }, spawn: { day: 18, night: 12 },
+      predator: { hungerTime: [150, 300], range: 750, bite: 0.08, calm: 0.5, rageSpeed: 1.15 },
+      cap: { near: 2, perPlayer: 2 }, habitat: ['forest', 'grass', 'meadow'],
       drops: [
         { item: 'fur', chance: 0.7, min: 1, max: 2 },
         { item: 'bone', chance: 0.4, min: 1, max: 1 },
@@ -475,7 +694,9 @@ module.exports = {
     },
     bear: {
       name: 'Bär', ai: 'territorial', hp: 420, speed: 105, dmg: 26, sdmg: 40, r: 36, score: 60, xp: 40,
-      aggro: 260, leash: 750, spawn: { day: 5, night: 3, perDay: 1, max: 10 },
+      aggro: 260, leash: 750, spawn: { day: 5, night: 3 },
+      predator: { hungerTime: [200, 400], range: 700, bite: 0.06, calm: 0.5, rageSpeed: 1.3 },
+      cap: { near: 1, perPlayer: 1.5 }, habitat: ['forest'],
       drops: [
         { item: 'fur', chance: 1, min: 2, max: 4 },
         { item: 'meat', chance: 1, min: 2, max: 4 },
@@ -488,6 +709,7 @@ module.exports = {
     base: 60,
     exp: 1.45,
     gather: 0.5, // pro abgebauter Einheit
+    smelt: 1, // pro Eisenbarren (für den Besitzer des Ofens, wenn er online ist)
     deplete: 4, // Ressource komplett abgebaut
     crate: 6, // Kiste aufgebrochen
     craft: 3,
@@ -506,22 +728,82 @@ module.exports = {
     { id: 'gatherer', name: 'Sammler', icon: '⛏', desc: '+15 % Chance auf doppelten Ertrag', max: 5, per: { doubleGather: 0.15 } },
   ],
 
+  // Fähigkeiten durch Übung: steigen von selbst, wenn man die Tätigkeit ausübt, und bleiben nach dem Tod.
+  // EP für Stufe L → L+1 = round(base × (L+1)^exp), höchstens max. per: Bonus pro Stufe,
+  // stats: der Bonus ändert Werte im Charakterfenster (dann werden sie beim Aufstieg neu berechnet).
+  // EP: Laufen 1 pro runDistance Einheiten (Sprinten ×1,5), Holzfällen/Bergbau 1 pro Einheit,
+  //     Schießen/Nahkampf 2 pro Treffer an Gegnern, Plündern 3 pro aufgebrochener Kiste.
+  PRACTICE: {
+    max: 20,
+    base: 12,
+    exp: 1.4,
+    runDistance: 150,
+    list: [
+      { id: 'running', name: 'Laufen', icon: '🏃', desc: '+1 % Tempo und −3 % Ausdauer beim Sprinten pro Stufe', stats: true, per: { speedPct: 0.01, sprintCost: -0.03 } },
+      { id: 'woodcutting', name: 'Holzfällen', icon: '🪓', desc: '+4 % Chance auf +1 Holz pro Schlag', per: { extraWood: 0.04 } },
+      { id: 'mining', name: 'Bergbau', icon: '⛏', desc: '+4 % Chance auf +1 Stein/Erz/Kohle pro Schlag', per: { extraOre: 0.04 } },
+      { id: 'shooting', name: 'Schießen', icon: '🎯', desc: '+2 % Fernkampf-Schaden und Feuerrate pro Stufe', stats: true, per: { rangedDmg: 0.02, rangedRate: 0.02 } },
+      { id: 'melee', name: 'Nahkampf', icon: '⚔', desc: '+2 % Nahkampf-Schaden und Schlagtempo pro Stufe', stats: true, per: { meleeDmg: 0.02, meleeRate: 0.02 } },
+      { id: 'looting', name: 'Plündern', icon: '📦', desc: '+3 % Chance auf doppelte Beute aus Kisten', per: { lootTwice: 0.03 } },
+    ],
+  },
+
   HOTBAR_SIZE: 6,
 
+  // Nahkampf der Gegner: Sie holen windup Sekunden aus; trifft der Schlag erst dann, wenn der Spieler noch
+  // innerhalb von Körperradien + reach steht. Wer rechtzeitig wegläuft, weicht aus.
+  // idleStructureChance: Gegner ohne Ziel, die an ein Gebäude stoßen, schlagen nur mit dieser Chance zu
+  // (pro Versuch, etwa 1×/s) und drehen sonst ab. Mit Ziel wird eingeschlagen, was im Weg steht.
+  ENEMY_ATTACK: { windup: 0.15, reach: 16, idleStructureChance: 0.03 },
+
   ANGER_TIME: 8, // Sekunden, die ein angegriffener Gegner seinen Angreifer verfolgt
+
+  // Tiere: capRadius für ENEMIES[*].cap, fireScare = Umkreis, in dem ein brennendes Lagerfeuer Tiere verscheucht,
+  // alphaFlee = Sekunden, die ein Rudel nach dem Tod seines Alphas flieht
+  WILDLIFE: { capRadius: 1600, fireScare: 300, alphaFlee: 4 },
+
+  // Hunger & Durst der Spieler (0 bis max): sinken in hungerTime bzw. thirstTime Sekunden von voll auf leer
+  // (beim Sprinten sprintMult-mal so schnell). Ist einer leer, kostet das starveDamage Leben pro Sekunde;
+  // unter noRegenBelow heilt man nicht mehr von selbst. Am See trinken: [F] (füllt auch leere Feldflaschen).
+  SURVIVAL: {
+    max: 100,
+    hungerTime: 720,
+    thirstTime: 480,
+    sprintMult: 1.75,
+    starveDamage: 2,
+    noRegenBelow: 25,
+    warnAt: 20,
+    respawnFill: 0.6, // so voll sind Hunger & Durst nach dem Wiederbeleben
+    drinkRange: 70, // Abstand zum Seeufer
+    drinkAmount: 30,
+    drinkCooldown: 0.8,
+  },
   DROP_NIGHT_BONUS: 1.5,
   MINIMAP_RANGE: 1800, // Radar-Reichweite der Minimap (Welteinheiten um den Spieler)
 
+  // Nachts gibt es keine Horden auf Basen – die Untoten (ai 'zombie') werden stattdessen wilder:
+  // mehr, schneller, sie sehen weiter, schlagen öfter und härter zu.
   SPAWN: {
     maxTotal: 400,
     dayInterval: 3.5, // Sekunden zwischen Spawns pro Spieler
-    nightInterval: 1.4,
+    nightInterval: 0.9,
     dayBase: 3, // gewünschte Zombies in der Nähe tagsüber (+ Tag/2)
-    nightBase: 6, // nachts (+ Tag * nightPerDay)
+    nightBase: 9, // nachts (+ Tag * nightPerDay)
     nightPerDay: 3,
     hpScale: 0.2, // +20% HP pro Tag
     dayAggro: 420,
-    nightAggro: 750,
-    nightSpeed: 1.15,
+    nightAggro: 950,
+    nightSpeed: 1.3, // Tempo-Faktor nachts
+    nightDamage: 1.25, // Schaden an Spielern nachts
+    nightAttackSpeed: 1.35, // Schläge pro Sekunde nachts
+    // Morgengrauen: nachts gespawnte Untote zerfallen (ohne Beute). Wer gerade von keinem Spieler gesehen
+    // wird, verschwindet sofort; sichtbare qualmen und zerfallen in dawnBurn Sekunden. Solange sie kämpfen
+    // (Ziel in der Nähe oder gerade angegriffen), pausiert der Zerfall.
+    dawnBurn: 15,
+    // Aufräumen: alle cleanupInterval Sekunden werden Gegner, die über dem gewünschten Bestand
+    // (+ cleanupSlack) um einen Spieler liegen, entfernt – nur außerhalb jedes Sichtfelds und nur untätige.
+    cleanupInterval: 2,
+    cleanupSlack: 3,
+    cleanupPerPass: 4,
   },
 };

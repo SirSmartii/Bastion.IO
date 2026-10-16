@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 `;
 
+// Fehlermeldung, die der Spieler sehen darf
+const nameTaken = () => Object.assign(new Error('Dieser Name ist schon vergeben.'), { forPlayer: true });
+
 const hash = (pass, salt) => new Promise((resolve, reject) => {
   crypto.scrypt(pass, salt, 32, (err, key) => (err ? reject(err) : resolve(key.toString('hex'))));
 });
@@ -64,11 +67,11 @@ class Db {
   }
 
   async register(username, pass) {
-    if (this.findAccount(username)) throw new Error('Dieser Name ist schon vergeben.');
+    if (this.findAccount(username)) throw nameTaken();
     const salt = crypto.randomBytes(16).toString('hex');
     const h = await hash(pass, salt);
     // Zweiter Check nach dem (asynchronen) Hashen: jemand könnte den Namen inzwischen belegt haben
-    if (this.findAccount(username)) throw new Error('Dieser Name ist schon vergeben.');
+    if (this.findAccount(username)) throw nameTaken();
     const r = this.q.addAcc.run(username, username.toLowerCase(), h, salt, Date.now());
     return { id: Number(r.lastInsertRowid), username };
   }
