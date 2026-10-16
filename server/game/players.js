@@ -134,7 +134,7 @@ module.exports = {
       stamina: P.stamina, sprinting: false, exhausted: false, sprintStop: -99,
       hunger: C.SURVIVAL.max, thirst: C.SURVIVAL.max, starveT: 0, needNote: {}, drinkT: -99,
       // Inventar & Ausrüstung
-      inv: Inv.create(), equip: {}, stats: null, hotbar: new Array(C.HOTBAR_SIZE).fill(null), ammoPref: {},
+      inv: Inv.create(), equip: {}, gear: {}, stats: null, hotbar: new Array(C.HOTBAR_SIZE).fill(null), ammoPref: {},
       // Basis
       core: null, forge: null, count: 0, counts: {}, chest: 0,
       // Fortschritt
@@ -157,7 +157,7 @@ module.exports = {
     for (const key of ['WORLD_SIZE', 'TILE', 'VIEW', 'PVP', 'DAY_LENGTH', 'NIGHT_LENGTH', 'PLAYER', 'AMMO', 'SKILLS', 'HOTBAR_SIZE',
       'EQUIPMENT', 'EQUIP_SLOTS', 'FORGE_TABS', 'RESOURCE_MIN_SCALE', 'INVENTORY', 'ITEMS', 'STRUCTURES', 'ENEMIES',
       'BUILD_CATEGORIES', 'MINIMAP_RANGE', 'MAP', 'TEAM', 'CHAT', 'UPKEEP',
-      'RESOURCES', 'SIGHT', 'TICK_RATE', 'PRACTICE', 'SURVIVAL', 'WILDLIFE']) cfg[key] = C[key];
+      'RESOURCES', 'SIGHT', 'TICK_RATE', 'PRACTICE', 'SURVIVAL', 'WILDLIFE', 'GEAR', 'MODS', 'CURSES']) cfg[key] = C[key];
     const w = this.world;
     p.conn.send(JSON.stringify({
       t: 'init', id: p.id, acc: acc ? acc.username : null, cfg,
@@ -282,7 +282,7 @@ module.exports = {
   updateNeeds(p, dt) {
     const S = C.SURVIVAL;
     if (this.isProtected(p)) return;
-    const k = p.sprinting ? S.sprintMult : 1;
+    const k = (p.sprinting ? S.sprintMult : 1) * p.stats.needs; // Ausrüstung kann Hunger & Durst bremsen oder beschleunigen
     p.hunger = Math.max(0, p.hunger - (S.max / S.hungerTime) * k * dt);
     p.thirst = Math.max(0, p.thirst - (S.max / S.thirstTime) * k * dt);
     this.needWarning(p, 'hunger', '🍖 Du hast Hunger – iss etwas [H].', '🍖 Du verhungerst! Iss sofort etwas [H].');
@@ -325,7 +325,8 @@ module.exports = {
     // Sprinten kostet Ausdauer; leer = erschöpft, bis wieder exhaustedUntil erreicht ist
     p.sprinting = moving && (k & 16) !== 0 && !p.exhausted && p.stamina > 0;
     if (p.sprinting) {
-      const cost = P.sprintCost * Math.max(0.4, 1 + this.practiceBonus(p, 'sprintCost')); // Übung im Laufen spart Ausdauer
+      // Übung im Laufen und Ausrüstungs-Boni sparen Ausdauer
+      const cost = P.sprintCost * Math.max(0.3, 1 + this.practiceBonus(p, 'sprintCost') + p.stats.sprintCost);
       p.stamina = Math.max(0, p.stamina - cost * dt);
       p.sprintStop = this.now;
       if (p.stamina <= 0) p.exhausted = true;

@@ -79,6 +79,23 @@ und `DB_PATH` darauf zeigen lassen, z. B. `DB_PATH=/var/data/bastion.db`.
   - 🪓 Holzfällen / ⛏ Bergbau (pro abgebauter Einheit): +4 % Chance auf +1 Holz bzw. Stein/Erz/Kohle pro Schlag
   - 🎯 Schießen / ⚔ Nahkampf (pro Treffer an Gegnern): +2 % Schaden und Feuerrate bzw. Schlagtempo pro Stufe
   - 📦 Plündern (pro aufgebrochener Kiste): +3 % Chance auf eine zweite Beute-Runde
+  - 🔨 Schmieden (Herstellen, Verbessern, Umschmieden, Zerlegen): siehe Verbessern
+- **Ausrüstung als Einzelstücke**: Jedes Waffen- und Kleidungsstück hat eine **Seltenheit** – Gewöhnlich, Gut (grün, 1 Bonus), Selten (blau, 2), Episch (lila, 3), Legendär (orange, 3, später von Bossen) – mit zufälligen **Boni** wie mehr Schaden, Angriffstempo, Reichweite, Lebensraub, Ertrag (nur Werkzeug), doppelte Beute, Leben, Rüstung, Tempo, Regeneration, weniger Sprint-Ausdauer oder langsamerer Hunger (`GEAR` und `MODS` in der Config). Rahmenfarbe, Tooltip und ein Leuchten am Boden zeigen die Seltenheit
+  - Selbst hergestellt ist meist gewöhnlich (75 %), manchmal Gut, selten Selten. Fundstücke aus Kisten und von Gegnern sind deutlich besser (bis Episch)
+  - **Flüche als Tausch**: Manche Teile tragen einen Fluch (rot, z. B. −8 % Tempo, mehr Hunger, lauter = Gegner bemerken dich früher; `CURSES`). Dafür würfeln ihre guten Boni 1,5-mal so stark
+- **Verbessern** (Schmiede → Reiter *Verbessern*): +1 bis +5, jede Stufe +8 % auf den Hauptwert (Waffen: Schaden, Kleidung: Rüstung & Leben). Kostet Eisen und 🪨 Wetzsteine (Schmiede: 30 Stein + 1 Eisen = 2 Stück, auch in Werkzeugkisten), ab +3 Gold, ab +4 🔮 Dunkle Essenz (von Kolossen, Bären, aus Waffenkisten). Ab +2 kann es schiefgehen:
+
+  | Ziel | Erfolg | nichts | Stufe −1 | zerstört |
+  |---|---|---|---|---|
+  | +1 | 100 % | – | – | – |
+  | +2 | 90 % | 10 % | – | – |
+  | +3 | 75 % | 20 % | 5 % | – |
+  | +4 | 60 % | 28 % | 10 % | 2 % |
+  | +5 | 45 % | 35 % | 15 % | 5 % |
+
+  Ein 🛡️ **Schutzsiegel** (selten, Waffenkisten & Kolosse) verhindert das Zerstören. Ein zerbrochenes Teil gibt ein paar Schrottteile zurück. Das Fenster zeigt die genauen Chancen vorher an
+- **Umschmieden**: einen Bonus gezielt neu würfeln (↻) oder den Fluch brechen (✕ – dann verlieren die Boni ihre Verstärkung). Kostet Schrott & Gold, jedes Mal etwas mehr. **Zerlegen**: Teil aus dem Inventar gegen 40 % der Rezeptkosten (plus Eisen für Verbesserungen) – Doppelklick zum Bestätigen
+- 🔨 **Schmieden** (Fähigkeit durch Übung): steigt beim Herstellen, Verbessern, Umschmieden und Zerlegen. Pro Stufe +1 % Erfolg, −3 % Stufenverlust, −4 % Zerstören (relativ) und eine Chance, dass Selbstgebautes eine Seltenheit besser wird. Auf Stufe 20 hat +5 rund 65 % Erfolg, 6 % Stufenverlust und 1 % Zerstören
 - **Waffen**: Äxte (gut zum Abbauen), Spitzhacken (Gestein), Schwerter (viel Schaden), Dolche (sehr schnell), Speere (große Reichweite), Bögen (Pfeile) und **Feuerwaffen**: Pistole, Schrotflinte (7 Schrotkugeln mit Streuung) und Gewehr (große Reichweite). Feuerwaffen verbrauchen Patronen bzw. Schrotpatronen aus der Schmiede (aus Eisen und Kohle). Schüsse sind laut und locken Gegner im Umkreis an (`noise`)
 - **Pfeiltypen**: Holz-, Stein- und Metallpfeile (mehr Schaden, bleiben nach einem Treffer öfter liegen: 30 / 50 / 75 %). Der Bogen nimmt automatisch den besten, mit `R` wechselst du den Typ (`AMMO` in `server/config.js`)
 - Waffen und Kleidung sind **einzelne Items**: per Drag & Drop oder Rechtsklick an- und ablegen, aus dem Fenster ziehen = droppen. Ohne Waffe kämpft man mit der Faust
@@ -125,6 +142,7 @@ Gegner entdecken nur Spieler, die sie sehen können. Verschwindet man hinter Dec
 | `server/game/combat.js` | Schläge, Schüsse, Projektile, Schaden, Beute |
 | `server/game/enemies.js` | Gegner spawnen, Zielwahl, Bewegung, Morgengrauen & Aufräumen |
 | `server/game/practice.js` | Fähigkeiten durch Übung (Laufen, Holzfällen, Schießen …) |
+| `server/game/gear.js` | Ausrüstung als Einzelstücke: Seltenheit, Boni, Flüche, Verbessern, Umschmieden, Zerlegen |
 | `server/game/sight.js` | Sichtlinien: Strahl durchs Raster, wer wen sehen kann |
 | `server/game/resources.js` | Welt aufbauen, Ressourcen abbauen & nachwachsen |
 | `server/game/social.js` | Teams & Chat |

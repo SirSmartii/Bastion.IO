@@ -267,7 +267,7 @@ module.exports = {
     for (const p of this.players.values()) {
       if (p.dead || this.isProtected(p)) continue;
       const d = dist(z, p);
-      if (d < aggro && d < bestD && sees(p)) { best = p; bestD = d; }
+      if (d < aggro * (p.stats.noise || 1) && d < bestD && sees(p)) { best = p; bestD = d; }
     }
     // Ziel hinter Deckung verschwunden: noch eine Weile zur letzten bekannten Position laufen
     if (!best && t && huntable(t) && this.now - z.seenAt < C.SIGHT.memory && dist(z, t) < (def.leash || aggro * 1.5)) {

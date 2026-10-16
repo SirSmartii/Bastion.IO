@@ -5,6 +5,7 @@
 //   i      Eingabe { k: Tastenbits, a: Blickwinkel, m: Maustaste gedrückt }
 //   b/u/x  Bauen { type, x, y, r: Drehung 0–3 } / Upgraden { id } / Abreißen { id }
 //   craft, equip, unequip, mv, drop, eat, drink, ammo, hb, use, skill   Inventar, Ausrüstung, Hotbar, Skills
+//   upg, rf, salv   An der Schmiede verbessern { src: 'inv'|'eq', i, ward } / umschmieden { src, i, k } / zerlegen { i }
 //   open, close, cmv   Truhe/Kern-Lager öffnen, schließen, Items verschieben
 //   chat, tinv, tacc, tdec, tleave, tkick   Chat & Team
 //
@@ -14,7 +15,7 @@
 //   pl  Spieler im Sichtfeld   [id, x, y, Winkel, hp, maxHp, Name, Schläge, Aussehen, sprintet, geschützt, Team]
 //   zs  Gegner                 [id, Typ, x, y, Winkel, hp, maxHp, Angriffe, hat Ziel, zerfällt, Alpha, Hunger 0–10 (-1 = kein Raubtier), Radius]
 //   ss  Gebäude                [id, Typ, x, y, Level, hp, maxHp, Besitzer, Winkel, aktiv (Ofen brennt), Drehung 0–3]
-//   it  Items am Boden         [id, Item, Anzahl, x, y]
+//   it  Items am Boden         [id, Item, Anzahl, x, y, Seltenheit]
 //       pl und zs enthalten nur, wen der Spieler sehen kann (Sichtlinie, siehe sight.js); Teammitglieder immer.
 //       zs/ss/it sind Deltas: nur was neu ins Sichtfeld kam oder sich geändert hat.
 //       zx/sx/ix enthalten die IDs, die verschwunden sind (zerstört oder aus dem Sichtfeld).
@@ -56,6 +57,9 @@ module.exports = {
       case 'hb': this.assignHotbar(p, int(m.i), m.item); break;
       case 'use': this.useHotbar(p, int(m.i)); break;
       case 'skill': this.learnSkill(p, m.id); break;
+      case 'upg': this.upgradeGear(p, m.src === 'eq' ? 'eq' : 'inv', m.src === 'eq' ? String(m.i) : int(m.i), !!m.ward); break;
+      case 'rf': this.reforgeGear(p, m.src === 'eq' ? 'eq' : 'inv', m.src === 'eq' ? String(m.i) : int(m.i), int(m.k)); break;
+      case 'salv': this.salvageGear(p, int(m.i)); break;
       case 'open': this.openChest(p, int(m.id)); break;
       case 'close': p.chest = 0; break;
       case 'cmv': this.chestMove(p, m); break;
@@ -220,7 +224,7 @@ module.exports = {
   groundItemsInView(x0, y0, x1, y1, inView) {
     const list = [];
     for (const it of this.itemGrid.queryRect(x0, y0, x1, y1)) {
-      if (this.items.has(it.id) && inView(it)) list.push([it.id, it.item, it.n, Math.round(it.x), Math.round(it.y)]);
+      if (this.items.has(it.id) && inView(it)) list.push([it.id, it.item, it.n, Math.round(it.x), Math.round(it.y), it.d ? it.d.r : 0]);
     }
     return list;
   },
@@ -250,7 +254,7 @@ module.exports = {
     const chest = p.chest ? this.structures.get(p.chest) : null;
     const openChest = chest && this.canUseChest(p, chest) ? chest : null;
     return {
-      res: Inv.totals(p.inv), inv: p.inv.map((s) => (s ? [s.item, s.n] : 0)), eq: p.equip, stats: p.stats, hb: p.hotbar,
+      res: Inv.totals(p.inv), inv: p.inv.map((s) => (s ? (s.d ? [s.item, s.n, s.d] : [s.item, s.n]) : 0)), eq: p.equip, eqd: p.gear, stats: p.stats, hb: p.hotbar,
       lvl: p.level, xp: Math.floor(p.xp), xpNext: this.xpNeeded(p.level), sp: p.sp, skills: p.skills,
       ammo: p.stats.ammo ? (this.ammoFor(p, p.stats.ammo) || C.AMMO[p.stats.ammo].types[0]).item : null,
       score: p.score, kills: p.kills,
@@ -260,7 +264,7 @@ module.exports = {
       up: core ? this.upkeepInfo(core) : null,
       // Offener Behälter: [id, Slots im Format des Inventars, Unterhalt (nur Kern), Ofen-Zustand (nur Ofen)]
       ch: openChest ? [
-        openChest.id, openChest.items.map((s) => (s ? [s.item, s.n] : 0)),
+        openChest.id, openChest.items.map((s) => (s ? (s.d ? [s.item, s.n, s.d] : [s.item, s.n]) : 0)),
         openChest.type === 'core' ? this.upkeepInfo(openChest) : null,
         openChest.type === 'furnace' ? this.furnaceInfo(openChest) : openChest.type === 'campfire' ? this.campfireInfo(openChest) : null,
       ] : null,

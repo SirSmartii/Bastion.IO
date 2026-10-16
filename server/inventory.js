@@ -1,5 +1,7 @@
 'use strict';
-// Slot-Inventar: Array fester Länge, jeder Slot ist null oder { item, n }.
+// Slot-Inventar: Array fester Länge, jeder Slot ist null oder { item, n, d? }.
+// d: Daten eines Ausrüstungs-Einzelstücks (Seltenheit, Stufe, Boni – siehe server/game/gear.js). Ohne d ist ein Teil
+// gewöhnlich und unverbessert. Ausrüstung stapelt nie (Stapelgröße 1), d wandert immer mit seinem Slot.
 
 const C = require('./config');
 
@@ -23,7 +25,8 @@ function totals(inv) {
 }
 
 // Legt n Stück ab (erst auf vorhandene Stapel, dann in freie Slots). Gibt den Rest zurück.
-function add(inv, item, n) {
+// d: Daten eines Ausrüstungsteils (dann ist n = 1)
+function add(inv, item, n, d) {
   const max = stackOf(item);
   for (const s of inv) {
     if (!n) return 0;
@@ -36,7 +39,7 @@ function add(inv, item, n) {
   for (let i = 0; i < inv.length && n > 0; i++) {
     if (inv[i]) continue;
     const k = Math.min(n, max);
-    inv[i] = { item, n: k };
+    inv[i] = d ? { item, n: k, d } : { item, n: k };
     n -= k;
   }
   return n;
@@ -73,7 +76,7 @@ function pay(inv, cost) {
 function move(inv, from, to) {
   if (from === to || !inv[from] || to < 0 || to >= inv.length) return;
   const a = inv[from], b = inv[to];
-  if (b && b.item === a.item) {
+  if (b && b.item === a.item && stackOf(a.item) > 1) {
     const k = Math.min(a.n, stackOf(a.item) - b.n);
     b.n += k;
     a.n -= k;
@@ -93,9 +96,9 @@ function transfer(src, from, dst, to, n) {
   const k = n > 0 ? Math.min(n, a.n) : a.n;
   const b = dst[to];
   if (!b) {
-    dst[to] = { item: a.item, n: k };
+    dst[to] = a.d ? { item: a.item, n: k, d: a.d } : { item: a.item, n: k };
     a.n -= k;
-  } else if (b.item === a.item) {
+  } else if (b.item === a.item && stackOf(a.item) > 1) {
     const m = Math.min(k, stackOf(a.item) - b.n);
     b.n += m;
     a.n -= m;
@@ -111,7 +114,7 @@ function transfer(src, from, dst, to, n) {
 function quickMove(src, from, dst) {
   const a = src[from];
   if (!a) return;
-  a.n = add(dst, a.item, a.n);
+  a.n = add(dst, a.item, a.n, a.d);
   if (!a.n) src[from] = null;
 }
 
@@ -122,7 +125,7 @@ function take(inv, slot, n) {
   const k = n > 0 ? Math.min(n, s.n) : s.n;
   s.n -= k;
   if (!s.n) inv[slot] = null;
-  return { item: s.item, n: k };
+  return s.d ? { item: s.item, n: k, d: s.d } : { item: s.item, n: k };
 }
 
 module.exports = { create, count, totals, add, remove, space, canAfford, pay, move, transfer, quickMove, take, stackOf };

@@ -7,6 +7,11 @@ import { drawItemIcon, itemName, fmtStats } from '../draw/items.js';
 import { RES_ICON } from '../constants.js';
 import { canAfford } from '../rules.js';
 import { send } from '../net.js';
+import { upgradeLayout, upgradeClick, drawUpgrade } from './upgrade.js';
+
+// Zusätzlicher Reiter nur im Client: Ausrüstung verbessern, umschmieden, zerlegen (ui/upgrade.js)
+const UPGRADE_TAB = { id: 'upgrade', name: 'Verbessern' };
+const forgeTabs = () => [...cfg.FORGE_TABS, UPGRADE_TAB];
 
 // Rezept eines Items: Ausrüstung hat es direkt, stapelbare Items (Munition) in ITEMS.recipes
 function recipeOf(id) {
@@ -33,14 +38,16 @@ export function cardGrid(ids, x, top) {
 }
 
 export function layout() {
-  const tab = cfg.FORGE_TABS.some((t) => t.id === ui.forgeTab) ? ui.forgeTab : cfg.FORGE_TABS[0].id;
-  const ids = recipeIds((recipe, id) => (cfg.EQUIPMENT[id] ? cfg.EQUIPMENT[id].tab : recipe.tab) === tab);
+  const tab = forgeTabs().some((t) => t.id === ui.forgeTab) ? ui.forgeTab : cfg.FORGE_TABS[0].id;
+  const ids = tab === 'upgrade' ? [] : recipeIds((recipe, id) => (cfg.EQUIPMENT[id] ? cfg.EQUIPMENT[id].tab : recipe.tab) === tab);
   const head = 44, tabH = 34, w = panelWidth();
-  const h = head + tabH + 12 + Math.ceil(ids.length / CARD.cols) * (CARD.h + CARD.gap) + 10;
+  const h = tab === 'upgrade' ? head + tabH + 12 + 356 : head + tabH + 12 + Math.ceil(ids.length / CARD.cols) * (CARD.h + CARD.gap) + 10;
   const x = Math.round(W / 2 - w / 2), y = Math.round(Math.max(60, H / 2 - h / 2 - 40));
-  const step = (w - CARD.pad * 2 + 6) / cfg.FORGE_TABS.length;
-  const tabs = cfg.FORGE_TABS.map(({ id, name }, i) => ({ id, name, rect: { x: x + CARD.pad + i * step, y: y + head, w: step - 6, h: tabH } }));
-  return { panel: { x, y, w, h }, tabs, cards: cardGrid(ids, x, y + head + tabH + 12), tab };
+  const step = (w - CARD.pad * 2 + 6) / forgeTabs().length;
+  const tabs = forgeTabs().map(({ id, name }, i) => ({ id, name, rect: { x: x + CARD.pad + i * step, y: y + head, w: step - 6, h: tabH } }));
+  const top = y + head + tabH + 12;
+  const upgrade = tab === 'upgrade' ? upgradeLayout(x + CARD.pad, top, w - CARD.pad * 2) : null;
+  return { panel: { x, y, w, h }, tabs, cards: cardGrid(ids, x, top), tab, upgrade, top };
 }
 
 export function onClick(x, y) {
@@ -48,11 +55,12 @@ export function onClick(x, y) {
   const tab = L.tabs.find((t) => inRect(x, y, t.rect));
   const card = L.cards.find((c) => inRect(x, y, c.btn));
   if (tab) ui.forgeTab = tab.id;
+  else if (L.upgrade) upgradeClick(x, y, L.upgrade);
   else if (card) send({ t: 'craft', id: card.id });
 }
 
 export function draw() {
-  const { panel: P, tabs, cards, tab } = layout();
+  const { panel: P, tabs, cards, tab, upgrade, top } = layout();
   const forgeLevel = me.forge ? me.forge[3] + 1 : 0;
   rrect(P.x, P.y, P.w, P.h, 14, 'rgba(24,18,14,0.96)', '#7a5a34', 3);
   text(`⚒️ Schmiede · Lv ${forgeLevel}`, P.x + 18, P.y + 29, { size: 18, bold: true, color: '#f2d27a' });
@@ -60,8 +68,9 @@ export function draw() {
   for (const t of tabs) {
     const active = t.id === tab;
     rrect(t.rect.x, t.rect.y, t.rect.w, t.rect.h, 8, active ? '#c98a3c' : 'rgba(0,0,0,0.3)', active ? '#8a5a20' : 'rgba(255,255,255,0.1)', 2);
-    text(t.name, t.rect.x + t.rect.w / 2, t.rect.y + 22, { size: 13, bold: true, align: 'center', color: active ? '#1f1409' : '#e9e0d0' });
+    text(t.name, t.rect.x + t.rect.w / 2, t.rect.y + 22, { size: 12, bold: true, align: 'center', color: active ? '#1f1409' : '#e9e0d0' });
   }
+  if (upgrade) drawUpgrade(upgrade, P.x + CARD.pad, top);
   for (const card of cards) drawRecipeCard(card, forgeLevel);
 }
 

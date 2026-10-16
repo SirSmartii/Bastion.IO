@@ -4,7 +4,7 @@
 import { ctx, cfg, me, myId, ui, mouse, W, H } from '../state.js';
 import { LEVEL_NAMES } from '../constants.js';
 import { panel, text } from '../draw/primitives.js';
-import { itemName, fmtStats } from '../draw/items.js';
+import { itemName, fmtStats, gearName, gearLines, rarityOf } from '../draw/items.js';
 import { canAfford } from '../rules.js';
 import { fmtCost } from './format.js';
 
@@ -24,13 +24,15 @@ export function tooltipLines(lines) {
   drawTooltipBox(lines);
 }
 
-export function itemTooltip(item, extraLines) {
+// d: Daten eines Ausrüstungs-Einzelstücks (Seltenheit, Stufe, Boni)
+export function itemTooltip(item, extraLines, d) {
   ui.pendingTooltip = () => {
     const def = cfg.EQUIPMENT[item];
-    const lines = [[itemName(item), '#ffe08a', true]];
+    const lines = [[def ? gearName(item, d) : itemName(item), def ? (d && d.r ? rarityOf(d).color : '#ffe08a') : '#ffe08a', true]];
     if (def) {
       lines.push([cfg.EQUIP_SLOTS.find((s) => s.id === def.slot).name, '#a8b597']);
-      lines.push([fmtStats(def), '#cfd8c0']);
+      lines.push([fmtStats(def, d), '#cfd8c0']);
+      lines.push(...gearLines(d));
     }
     drawTooltipBox(lines.concat(extraLines || []));
   };

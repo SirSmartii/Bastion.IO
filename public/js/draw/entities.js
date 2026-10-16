@@ -506,8 +506,10 @@ export function drawAimLine() {
 export function drawGroundItem(it) {
   const bob = Math.sin(now * 3 + it.id) * 3;
   circle(it.x, it.y + 12, 14, 'rgba(0,0,0,0.18)');
+  // Seltene Ausrüstung leuchtet in ihrer Farbe
+  if (it.r) circle(it.x, it.y + bob, 22 + Math.sin(now * 4 + it.id) * 2, cfg.GEAR.rarities[it.r].color + '55', cfg.GEAR.rarities[it.r].color, 2);
   drawItemIcon(it.item, it.x, it.y + bob, 34);
-  outlinedText(String(it.n), it.x + 14, it.y + 18 + bob, { size: 13, outline: 'rgba(0,0,0,0.65)', width: 3 });
+  if (it.n > 1 || !cfg.EQUIPMENT[it.item]) outlinedText(String(it.n), it.x + 14, it.y + 18 + bob, { size: 13, outline: 'rgba(0,0,0,0.65)', width: 3 });
 }
 
 // Geschoss [x, y, Winkel, Aussehen]: 1 = Kugel mit Leuchtspur, sonst Pfeil mit Spitze nach Typ

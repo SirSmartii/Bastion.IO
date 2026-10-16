@@ -10,7 +10,7 @@ export const LEVEL_NAMES = ['Holz', 'Stein', 'Gold', 'Diamant', 'Rubin'];
 export const RES_ICON = {
   wood: '🪵', stone: '🪨', gold: '🪙', bone: '🦴', scrap: '🔩', fur: '🧶', meat: '🍖', iron_ore: '🟤', coal: '⚫', iron: '⛓️', can: '🥫', bandage: '🩹',
   berries: '🫐', apple: '🍎', carrot: '🥕', potato: '🥔', corn: '🌽', pumpkin: '🎃', cooked_meat: '🍗', baked_potato: '🥔', roasted_corn: '🌽',
-  bottle: '🫙', water: '💧',
+  bottle: '🫙', water: '💧', whetstone: '🪨', essence: '🔮', ward: '🛡️',
   arrow_wood: '🏹', arrow_stone: '🏹', arrow_iron: '🏹', bullet: '🔸', shell: '🔴',
 };
 

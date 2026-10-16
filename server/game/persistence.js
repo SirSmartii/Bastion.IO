@@ -14,7 +14,7 @@ module.exports = {
   serializePlayer(p) {
     return {
       v: 1, x: Math.round(p.x), y: Math.round(p.y), hp: Math.round(p.hp), dead: p.dead,
-      inv: p.inv.map((s) => (s ? [s.item, s.n] : 0)), equip: p.equip, hotbar: p.hotbar,
+      inv: p.inv.map((s) => (s ? (s.d ? [s.item, s.n, s.d] : [s.item, s.n]) : 0)), equip: p.equip, gear: p.gear, hotbar: p.hotbar,
       level: p.level, xp: p.xp, sp: p.sp, skills: p.skills, practice: p.practice, ammoPref: p.ammoPref, score: p.score, kills: p.kills,
       protectUntil: p.protectUntil, calmUntil: p.calmUntil, protectNote: p.protectNote,
       hunger: Math.round(p.hunger), thirst: Math.round(p.thirst),
@@ -30,12 +30,15 @@ module.exports = {
     p.inv = Inv.create();
     (d.inv || []).forEach((s, i) => {
       if (!s || !this.isKnownItem(s[0]) || !(s[1] > 0)) return;
-      if (i < p.inv.length && !p.inv[i] && s[1] <= Inv.stackOf(s[0])) p.inv[i] = { item: s[0], n: s[1] | 0 };
-      else Inv.add(p.inv, s[0], s[1] | 0);
+      const gear = this.cleanGear(s[0], s[2]);
+      if (i < p.inv.length && !p.inv[i] && s[1] <= Inv.stackOf(s[0])) p.inv[i] = gear ? { item: s[0], n: s[1] | 0, d: gear } : { item: s[0], n: s[1] | 0 };
+      else Inv.add(p.inv, s[0], s[1] | 0, gear || undefined);
     });
+    p.gear = {};
     for (const slot of C.EQUIP_SLOTS) {
       const def = lookup(C.EQUIPMENT, d.equip && d.equip[slot.id]);
       p.equip[slot.id] = def && def.slot === slot.id ? d.equip[slot.id] : null;
+      p.gear[slot.id] = p.equip[slot.id] ? this.cleanGear(p.equip[slot.id], d.gear && d.gear[slot.id]) : null;
     }
     (d.hotbar || []).slice(0, C.HOTBAR_SIZE).forEach((item, i) => { p.hotbar[i] = this.isKnownItem(item) ? item : null; });
 
@@ -84,7 +87,7 @@ module.exports = {
   serializeBase(structures) {
     return structures.map((s) => {
       const o = { type: s.type, x: s.x, y: s.y, level: s.level, hp: Math.round(s.hp), rot: s.rot };
-      if (s.items) o.items = s.items.map((it) => (it ? [it.item, it.n] : 0));
+      if (s.items) o.items = s.items.map((it) => (it ? (it.d ? [it.item, it.n, it.d] : [it.item, it.n]) : 0));
       if (s.type === 'core') { o.upkeepT = Math.round(s.upkeepT); o.decaying = !!s.decaying; }
       return o;
     });
@@ -109,7 +112,9 @@ module.exports = {
     s.hp = clamp(num(o.hp, L.hp), 1, L.hp);
     if (s.items) {
       (o.items || []).forEach((it, i) => {
-        if (it && i < s.items.length && this.isKnownItem(it[0]) && it[1] > 0) s.items[i] = { item: it[0], n: it[1] | 0 };
+        if (!it || i >= s.items.length || !this.isKnownItem(it[0]) || !(it[1] > 0)) return;
+        const gear = this.cleanGear(it[0], it[2]);
+        s.items[i] = gear ? { item: it[0], n: it[1] | 0, d: gear } : { item: it[0], n: it[1] | 0 };
       });
     }
     if (s.type === 'core') {

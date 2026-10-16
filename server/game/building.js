@@ -173,7 +173,7 @@ module.exports = {
     for (const it of s.items || []) {
       if (!it) continue;
       const a = rand(0, TAU), d = rand(5, Math.max(s.hw, s.hh) + 15);
-      this.dropItem(s.x + Math.cos(a) * d, s.y + Math.sin(a) * d, it.item, it.n);
+      this.dropItem(s.x + Math.cos(a) * d, s.y + Math.sin(a) * d, it.item, it.n, 0, it.d);
     }
 
     const owner = this.players.get(s.owner);

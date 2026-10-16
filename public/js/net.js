@@ -102,7 +102,7 @@ function applyState(m) {
   syncAll(players, m.pl, (a) => ({ id: a[0], x: a[1], y: a[2], angle: a[3], hp: a[4], maxHp: a[5], name: a[6], swings: a[7], look: a[8], sprint: a[9], prot: a[10], team: a[11] }));
   syncDelta(zombies, m.zs, m.zx, (a) => ({ id: a[0], type: a[1], x: a[2], y: a[3], angle: a[4], hp: a[5], maxHp: a[6], swings: a[7], aggro: a[8], burning: a[9], alpha: a[10], hunger: a[11], r: a[12] }));
   syncDelta(structs, m.ss, m.sx, (a) => ({ id: a[0], type: a[1], x: a[2], y: a[3], level: a[4], hp: a[5], maxHp: a[6], owner: a[7], angle: a[8], active: a[9], rot: a[10] || 0 }));
-  syncDelta(groundItems, m.it, m.ix, (a) => ({ id: a[0], item: a[1], n: a[2], x: a[3], y: a[4] }));
+  syncDelta(groundItems, m.it, m.ix, (a) => ({ id: a[0], item: a[1], n: a[2], x: a[3], y: a[4], r: a[5] || 0 }));
 
   // Stützpunkte zum zeitgenauen Abspielen der Bewegung (interp.js)
   const serverT = onServerTick(m.n, cfg.TICK_RATE);

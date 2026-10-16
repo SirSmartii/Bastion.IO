@@ -2,7 +2,7 @@
 
 import { ctx, cfg, me, myId, structs, ui, mouse, W, H } from '../state.js';
 import { rrect, text, inRect, fmtClock } from '../draw/primitives.js';
-import { drawItemIcon, stackMax } from '../draw/items.js';
+import { drawItemIcon, stackMax, gearBadge } from '../draw/items.js';
 import { fmtCost } from './format.js';
 import { RES_ICON } from '../constants.js';
 import { itemTooltip } from './tooltip.js';
@@ -75,6 +75,7 @@ function drawSlots(slots, box, container, hoverSlot) {
     const [item, n] = s;
     ctx.globalAlpha = ui.drag && ui.drag.slot === i && (ui.drag.c || 0) === container ? 0.3 : 1;
     drawItemIcon(item, r.x + r.w / 2, r.y + r.h / 2 - 3, 38);
+    gearBadge(r, s[2]);
     if (!cfg.EQUIPMENT[item]) {
       ctx.font = 'bold 14px Segoe UI, sans-serif';
       ctx.textAlign = 'right';
@@ -102,9 +103,9 @@ export function drawInventory() {
   text(hint, P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#8f9c80', align: 'center' });
 
   if (ui.drag || hoverSlot < 0 || !me.inv[hoverSlot]) return;
-  const [item, n] = me.inv[hoverSlot];
-  if (target) itemTooltip(item, [[`× ${n} · Rechtsklick: ${target}`, '#cfd8c0']]);
-  else if (cfg.EQUIPMENT[item]) itemTooltip(item, [['Rechtsklick: ausrüsten', '#a8b597']]);
+  const [item, n, d] = me.inv[hoverSlot];
+  if (target) itemTooltip(item, [[`× ${n} · Rechtsklick: ${target}`, '#cfd8c0']], d);
+  else if (cfg.EQUIPMENT[item]) itemTooltip(item, [['Rechtsklick: ausrüsten', '#a8b597']], d);
   else if (cfg.ITEMS.food[item]) itemTooltip(item, [[`× ${n} · Rechtsklick: verbrauchen`, '#cfd8c0'], [foodText(item), '#9fe870']]);
   else itemTooltip(item, [[`× ${n}  (max ${stackMax(item)})`, '#cfd8c0']]);
 }
@@ -126,8 +127,8 @@ export function drawChest() {
   drawSlots(slots, box, 1, hoverSlot);
   text('Ziehen: einlagern / entnehmen · Rechtsklick: ganzer Stapel', P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#a8957a', align: 'center' });
   if (!ui.drag && hoverSlot >= 0 && box[hoverSlot]) {
-    const [item, n] = box[hoverSlot];
-    itemTooltip(item, [[cfg.EQUIPMENT[item] ? 'Rechtsklick: ins Inventar' : `× ${n} · Rechtsklick: ins Inventar`, '#cfd8c0']]);
+    const [item, n, d] = box[hoverSlot];
+    itemTooltip(item, [[cfg.EQUIPMENT[item] ? 'Rechtsklick: ins Inventar' : `× ${n} · Rechtsklick: ins Inventar`, '#cfd8c0']], d);
   }
 }
 

@@ -11,9 +11,46 @@ const STAT_LABELS = {
   damage: 'Schaden', gather: 'Abbau', armor: 'Rüstung', maxHp: 'Leben', speed: 'Tempo', regen: 'Regeneration', stamina: 'Ausdauer',
 };
 
+// ---------- Einzelstücke: Seltenheit, Stufe, Boni (d, siehe server/game/gear.js) ----------
+
+export const rarityOf = (d) => cfg.GEAR.rarities[(d && d.r) || 0];
+export const gearName = (item, d) => itemName(item) + (d && d.u ? ` +${d.u}` : '');
+
+// "+12 % Schaden", "−3 Rüstung"
+export function fmtMod(mod, v) {
+  return `${v > 0 ? '+' : '−'}${String(Math.abs(v)).replace('.', ',')}${mod.pct ? ' %' : ''} ${mod.name}`;
+}
+
+// Tooltip-Zeilen: Seltenheit, Boni (grün), Fluch (rot)
+export function gearLines(d) {
+  const R = rarityOf(d), lines = [[`${R.name}${d && d.c ? ' · verflucht' : ''}`, R.color, true]];
+  for (const [id, v] of (d && d.m) || []) lines.push([`  ${fmtMod(cfg.MODS[id], v)}`, '#9fe870']);
+  if (d && d.c) lines.push([`  ${fmtMod(cfg.CURSES[d.c[0]], d.c[1])}`, '#ff7a6a']);
+  return lines;
+}
+
+// Rahmen in Seltenheitsfarbe und "+2" in der Ecke eines Slots r
+export function gearBadge(r, d) {
+  if (!d) return;
+  const R = rarityOf(d);
+  if (d.r) rrect(r.x + 2, r.y + 2, r.w - 4, r.h - 4, 7, null, R.color, 2.5);
+  if (d.c) circle(r.x + r.w - 8, r.y + 8, 4, '#c0392b', '#3a0d08', 1.5);
+  if (d.u) {
+    ctx.font = 'bold 13px Segoe UI, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText(`+${d.u}`, r.x + 5, r.y + 15);
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillText(`+${d.u}`, r.x + 5, r.y + 15);
+  }
+}
+
 // Werte eines Ausrüstungsteils als Text. Waffen: absolute Werte; Kleidung: Boni mit Vorzeichen.
-export function fmtStats(def) {
-  const st = def.stats;
+// d: Verbesserungsstufe erhöht den Hauptwert (Waffen: Schaden, Kleidung: Rüstung & Leben)
+export function fmtStats(def, d) {
+  const up = 1 + cfg.GEAR.upgradeBonus * ((d && d.u) || 0), main = def.slot === 'weapon' ? ['damage'] : ['armor', 'maxHp'];
+  const st = Object.fromEntries(Object.entries(def.stats).map(([k, v]) => [k, main.includes(k) ? +(v * up).toFixed(1) : v]));
   if (def.slot !== 'weapon') return Object.entries(st).map(([k, v]) => `${v > 0 ? '+' : ''}${v} ${STAT_LABELS[k] || k}`).join(' · ');
   const pellets = def.projectile && def.projectile.pellets;
   const parts = [pellets ? `${pellets}×${st.damage} Schaden` : `${st.damage} Schaden`, `${st.attackSpeed || +(1 / cfg.PLAYER.attackCooldown).toFixed(1)}/s`];
@@ -226,6 +263,28 @@ const ICONS = {
     ellipse(0, 3, 10, 13, '#ee8a2b', '#8a4510', 2.5);
     rrect(-2, -14, 4, 7, 1.5, '#6a5020');
     leaf(2, -11, 11, 3.5, -0.4, '#5a9a3c');
+  },
+  whetstone() {
+    ctx.rotate(-0.4);
+    rrect(-16, -6, 32, 12, 4, '#8b9196', '#4a4f53', 2.5);
+    rrect(-14, -5, 28, 4, 2, '#b4bac0');
+  },
+  essence() {
+    poly([[0, -17], [11, -3], [6, 15], [-6, 15], [-11, -3]]);
+    ctx.fillStyle = '#5a2a8a'; ctx.fill();
+    ctx.strokeStyle = '#2a0f45'; ctx.lineWidth = 2.5; ctx.stroke();
+    poly([[0, -12], [6, -2], [0, 8], [-6, -2]]);
+    ctx.fillStyle = '#c77dff'; ctx.fill();
+    circle(-2, -5, 2, '#f0d8ff');
+  },
+  ward() {
+    poly([[0, -17], [14, -11], [12, 5], [0, 16], [-12, 5], [-14, -11]]);
+    ctx.fillStyle = '#d4a93a'; ctx.fill();
+    ctx.strokeStyle = '#6e5014'; ctx.lineWidth = 2.5; ctx.stroke();
+    poly([[0, -10], [8, -6], [7, 3], [0, 10], [-7, 3], [-8, -6]]);
+    ctx.fillStyle = '#7a1f1f'; ctx.fill();
+    rrect(-1.5, -6, 3, 12, 1, '#f2d27a');
+    rrect(-5, -1.5, 10, 3, 1, '#f2d27a');
   },
   // Feldflasche aus Leder, leer bzw. gefüllt (blaue Welle)
   bottle() { canteen(false); },

@@ -15,6 +15,7 @@
 //   enemies.js      Gegner spawnen, Zielwahl, Bewegung
 //   sight.js        Sichtlinien (Deckung hinter Bäumen, Felsen, Mauern)
 //   practice.js     Fähigkeiten durch Übung (Laufen, Holzfällen, Schießen …)
+//   gear.js         Ausrüstung als Einzelstücke: Seltenheit, Boni, Verbessern, Umschmieden, Zerlegen
 //   social.js       Teams & Chat
 //   network.js      Nachrichten annehmen, Zustand senden
 
@@ -114,7 +115,7 @@ class Game {
   }
 }
 
-for (const part of ['resources', 'players', 'persistence', 'items', 'building', 'storage', 'combat', 'enemies', 'sight', 'practice', 'social', 'network']) {
+for (const part of ['resources', 'players', 'persistence', 'items', 'building', 'storage', 'combat', 'enemies', 'sight', 'practice', 'gear', 'social', 'network']) {
   Object.assign(Game.prototype, require(`./game/${part}`));
 }
 

@@ -3,14 +3,14 @@
 
 import { ctx, cfg, me, ui, mouse, W, H } from '../state.js';
 import { rrect, text, inRect } from '../draw/primitives.js';
-import { drawItemIcon, itemName } from '../draw/items.js';
+import { drawItemIcon, itemName, gearBadge } from '../draw/items.js';
 import { itemTooltip, tooltipLines } from './tooltip.js';
 import { dragStack } from './inventory.js';
 
-const PRACTICE_ROW = 52, PRACTICE_HEIGHT = 3 * PRACTICE_ROW + 44;
+const PRACTICE_ROW = 52, practiceHeight = () => Math.ceil(cfg.PRACTICE.list.length / 2) * PRACTICE_ROW + 44;
 
 export function charLayout() {
-  const w = 470, h = 410 + PRACTICE_HEIGHT, size = 60;
+  const w = 470, h = 410 + practiceHeight(), size = 60;
   const x = Math.round(ui.inv ? W / 2 + 8 : W / 2 - w / 2); // mit Inventar: rechts daneben
   const y = Math.round(Math.max(80, H / 2 - h / 2 - 40));
   const cx = x + 125; // Mittelachse der "Figur"
@@ -53,7 +53,7 @@ export function drawCharacter() {
   text('Ziehen oder Rechtsklick: an-/ablegen · rausziehen = droppen', P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#8f9c80', align: 'center' });
 
   const hoverEq = eqSlotAt(mouse.x, mouse.y);
-  if (!ui.drag && hoverEq && me.eq[hoverEq]) itemTooltip(me.eq[hoverEq], [['Rechtsklick: ablegen', '#a8b597']]);
+  if (!ui.drag && hoverEq && me.eq[hoverEq]) itemTooltip(me.eq[hoverEq], [['Rechtsklick: ablegen', '#a8b597']], me.eqd && me.eqd[hoverEq]);
 }
 
 function drawEquipSlots(slots) {
@@ -69,6 +69,7 @@ function drawEquipSlots(slots) {
     if (item) {
       ctx.globalAlpha = ui.drag && ui.drag.eq === slot.id ? 0.3 : 1;
       drawItemIcon(item, r.x + r.w / 2, r.y + r.h / 2, 40);
+      gearBadge(r, me.eqd && me.eqd[slot.id]);
       ctx.globalAlpha = 1;
     } else {
       text(slot.name, r.x + r.w / 2, r.y + r.h / 2 + 5, { size: 12, color: 'rgba(255,255,255,0.3)', align: 'center' });
@@ -88,6 +89,10 @@ const PRACTICE_EFFECTS = {
   meleeDmg: (v) => `+${v} % Schaden`,
   meleeRate: (v) => `+${v} % Schlagtempo`,
   lootTwice: (v) => `${v} % doppelte Beute`,
+  smithSuccess: (v) => `+${v} % Erfolg`,
+  smithDrop: (v) => `−${-v} % Stufenverlust`,
+  smithBreak: (v) => `−${-v} % Zerstören`,
+  smithLuck: (v) => `+${v} % Seltenheit`,
 };
 
 function practiceEffect(def, level) {

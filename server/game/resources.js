@@ -30,9 +30,9 @@ module.exports = {
     return this.world.cities.find((c) => Math.hypot(c.x - x, c.y - y) < c.r + margin) || null;
   },
 
-  // Steht an (x, y) mit Radius r nichts Festes (Ressource, See, Ruine, Gebäude)?
+  // Steht an (x, y) mit Radius r nichts Festes (Ressource, See, Ruine, Gebäude)? Begehbares (Büsche, Gemüse) zählt nicht.
   isFree(x, y, r) {
-    return !this.statics.query(x, y, r + 100).some((o) => circleHitsStatic(o, x, y, r));
+    return !this.statics.query(x, y, r + 100).some((o) => o.cr !== 0 && circleHitsStatic(o, x, y, r));
   },
 
   // Neue Ressource an freier Stelle (oder genau an pos = { x, y, angle }).
@@ -92,7 +92,7 @@ module.exports = {
     if (def.loot) {
       this.dropLoot(o, def.loot, 1);
       // Übung im Plündern: Chance auf eine zweite Beute-Runde
-      if (p && Math.random() < this.practiceBonus(p, 'lootTwice')) this.dropLoot(o, def.loot, 1);
+      if (p && Math.random() < this.practiceBonus(p, 'lootTwice') + p.stats.lootBonus) this.dropLoot(o, def.loot, 1);
       if (p) this.addPractice(p, 'looting', 3);
     }
     if (p) this.addXp(p, def.loot ? C.XP.crate : C.XP.deplete);

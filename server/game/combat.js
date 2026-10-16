@@ -87,6 +87,7 @@ module.exports = {
       if (Math.hypot(z.x - hx, z.y - hy) >= hr + z.r) continue;
       this.angerZombie(z, p.id);
       this.damageZombie(z, st.damage, p.id);
+      this.lifesteal(p, st.damage);
       this.addPractice(p, 'melee', 2);
     }
     for (const o of this.statics.query(hx, hy, hr + 80)) {
@@ -123,9 +124,10 @@ module.exports = {
     // Sammler-Skill: Chance auf doppelten Ertrag
     const want = Math.min(power * (Math.random() < p.stats.doubleGather ? 2 : 1), o.amount);
     if (!want) return;
-    // Übung: Chance auf +1 (Holzfällen bei Holz, Bergbau bei Gestein)
+    // Übung (Holzfällen bei Holz, Bergbau bei Gestein) und Ertrags-Boni der Ausrüstung: Chance auf +1
     const skill = def.hard ? 'mining' : kind === 'wood' ? 'woodcutting' : null;
-    const extra = skill && Math.random() < this.practiceBonus(p, skill === 'mining' ? 'extraOre' : 'extraWood') ? 1 : 0;
+    const extraChance = (skill ? this.practiceBonus(p, skill === 'mining' ? 'extraOre' : 'extraWood') : 0) + p.stats.yieldBonus;
+    const extra = Math.random() < extraChance ? 1 : 0;
     const got = want + extra - Inv.add(p.inv, kind, want + extra);
     if (!got) {
       if (this.now - p.fullMsgT > 2) { p.fullMsgT = this.now; this.msg(p, 'Inventar voll! [Tab] zum Aufräumen.'); }
@@ -183,15 +185,24 @@ module.exports = {
     return true;
   },
 
-  // Droptable würfeln; Beute fällt verstreut auf den Boden (nachts mehr, außer fixedMult ist gesetzt)
+  // Droptable würfeln; Beute fällt verstreut auf den Boden (nachts mehr, außer fixedMult ist gesetzt).
+  // Ausrüstung wird einzeln als Fundstück ausgewürfelt (Seltenheit & Boni, GEAR.sources.loot).
   dropLoot(source, drops, fixedMult) {
     const mult = fixedMult || (this.isNight ? C.DROP_NIGHT_BONUS : 1);
     for (const d of drops || []) {
       if (Math.random() >= d.chance) continue;
       const n = Math.round((d.min + Math.floor(Math.random() * (d.max - d.min + 1))) * mult);
       const a = rand(0, TAU), r = rand(8, (source.r || 20) + 10);
-      this.dropItem(source.x + Math.cos(a) * r, source.y + Math.sin(a) * r, d.item, n);
+      const x = source.x + Math.cos(a) * r, y = source.y + Math.sin(a) * r;
+      if (C.EQUIPMENT[d.item]) for (let i = 0; i < n; i++) this.dropItem(x + i * 12, y, d.item, 1, 0, this.rollGear(d.item, 'loot'));
+      else this.dropItem(x, y, d.item, n);
     }
+  },
+
+  // Lebensraub: ein Teil des Schadens heilt den Angreifer
+  lifesteal(p, dmg) {
+    if (!p || !p.stats.lifesteal || p.dead) return;
+    p.hp = Math.min(p.maxHp, p.hp + dmg * p.stats.lifesteal);
   },
 
   // raw: an der Rüstung vorbei (Hunger, Durst). deathMsg: was der Spieler beim Tod liest.
@@ -208,12 +219,22 @@ module.exports = {
     p.hp = 0;
     p.respawnT = C.PLAYER.respawnTime;
     p.chest = 0;
-    // Ein Teil des Inventars fällt als Beute auf den Boden
+    // Ein Teil des Inventars fällt als Beute auf den Boden – Ausrüstung als ganze Einzelstücke (samt Daten)
     for (const [item, n] of Object.entries(Inv.totals(p.inv))) {
-      const lose = Math.floor(n * C.PLAYER.deathLoss);
+      let lose = Math.floor(n * C.PLAYER.deathLoss);
       if (!lose) continue;
-      Inv.remove(p.inv, item, lose);
-      this.dropItem(p.x + rand(-25, 25), p.y + rand(-25, 25), item, lose);
+      if (!C.EQUIPMENT[item]) {
+        Inv.remove(p.inv, item, lose);
+        this.dropItem(p.x + rand(-25, 25), p.y + rand(-25, 25), item, lose);
+        continue;
+      }
+      for (let i = p.inv.length - 1; i >= 0 && lose > 0; i--) {
+        const s = p.inv[i];
+        if (!s || s.item !== item) continue;
+        p.inv[i] = null;
+        lose--;
+        this.dropItem(p.x + rand(-25, 25), p.y + rand(-25, 25), item, 1, 0, s.d);
+      }
     }
     p.score = Math.floor(p.score * 0.8);
     this.lbDirty = true;
@@ -243,6 +264,7 @@ module.exports = {
       if (b.fromPlayer) {
         this.angerZombie(z, b.owner);
         this.addPractice(this.players.get(b.owner), 'shooting', 2);
+        this.lifesteal(this.players.get(b.owner), b.dmg);
       }
       this.damageZombie(z, b.dmg, b.owner);
       return true;

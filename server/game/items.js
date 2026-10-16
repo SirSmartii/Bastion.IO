@@ -19,8 +19,8 @@ module.exports = {
   },
 
   // Item auf den Boden legen. blockId: dieser Spieler hebt es erst auf, nachdem er sich einmal entfernt hat
-  // (gemerkt beim Spieler in p.dropBlocked, damit es auch nach Teleport oder Tod stimmt).
-  dropItem(x, y, item, n, blockId = 0) {
+  // (gemerkt beim Spieler in p.dropBlocked, damit es auch nach Teleport oder Tod stimmt). d: Daten eines Ausrüstungsteils
+  dropItem(x, y, item, n, blockId = 0, d = null) {
     const dropper = blockId ? this.players.get(blockId) : null;
     if (n <= 0) return;
     const W = C.WORLD_SIZE;
@@ -39,6 +39,7 @@ module.exports = {
     // Zu viele Items am Boden: das älteste verschwindet
     if (this.items.size >= C.ITEMS.maxGround) this.removeGroundItem(this.items.values().next().value);
     const it = { id: uid(), item, n, x, y, br: 1, t: this.now };
+    if (d) it.d = d;
     if (dropper) dropper.dropBlocked.add(it.id);
     this.items.set(it.id, it);
     this.itemGrid.insert(it);
@@ -62,11 +63,11 @@ module.exports = {
   dropFromSlot(p, slot, n, x, y) {
     if (p.dead || slot < 0 || slot >= p.inv.length) return;
     const taken = Inv.take(p.inv, slot, n);
-    if (taken) this.dropFromHand(p, taken.item, x, y, taken.n);
+    if (taken) this.dropFromHand(p, taken.item, x, y, taken.n, taken.d);
   },
 
   // Werfen: an die Zielposition (höchstens maxDropDist weit) oder vor die Füße
-  dropFromHand(p, item, x, y, n = 1) {
+  dropFromHand(p, item, x, y, n = 1, d = null) {
     const max = C.ITEMS.maxDropDist;
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       x = p.x + Math.cos(p.angle) * 70;
@@ -75,7 +76,7 @@ module.exports = {
       const d = Math.hypot(x - p.x, y - p.y);
       if (d > max) { x = p.x + ((x - p.x) / d) * max; y = p.y + ((y - p.y) / d) * max; }
     }
-    this.dropItem(x, y, item, n, p.id);
+    this.dropItem(x, y, item, n, p.id, d);
   },
 
   pickupItems(p) {
@@ -87,7 +88,7 @@ module.exports = {
     }
     for (const it of this.nearbyGroundItems(p.x, p.y, range)) {
       if (p.dropBlocked.has(it.id) || Math.hypot(it.x - p.x, it.y - p.y) > range) continue;
-      const left = Inv.add(p.inv, it.item, it.n);
+      const left = Inv.add(p.inv, it.item, it.n, it.d);
       if (left === it.n) continue; // Inventar voll
       this.events.push([Math.round(it.x), Math.round(it.y), 'pick', it.n - left, it.item, p.id]);
       it.n = left;
@@ -175,6 +176,7 @@ module.exports = {
   // Grundwerte + Ausrüstung + Fertigkeiten → effektive Werte in p.stats
   computeStats(p) {
     const P = C.PLAYER;
+    const gm = this.gearMods(p); // Boni & Flüche der Ausrüstung
     const st = {
       maxHp: P.hp, armor: 0, damage: P.fistDamage, gather: P.fistGather, mine: 0, // mine 0 = Gestein wie alles andere (gather)
       speed: P.speed, attackSpeed: +(1 / P.attackCooldown).toFixed(2), regen: P.regen, reach: P.reach,
@@ -182,14 +184,20 @@ module.exports = {
     };
     // Waffen ersetzen die Faustwerte, alles andere addiert sich
     const WEAPON_REPLACES = ['damage', 'gather', 'mine', 'attackSpeed', 'reach', 'range'];
+    // Verbesserungsstufe: Waffen mehr Schaden, Kleidung mehr Rüstung & Leben
+    const MAIN_STATS = { weapon: ['damage'], armor: ['armor', 'maxHp'] };
     for (const slot of C.EQUIP_SLOTS) {
       const def = C.EQUIPMENT[p.equip[slot.id]];
       if (!def) continue;
-      for (const [k, v] of Object.entries(def.stats)) {
+      const up = this.upgradeFactor(p.gear[slot.id]), main = MAIN_STATS[slot.id === 'weapon' ? 'weapon' : 'armor'];
+      for (const [k, raw] of Object.entries(def.stats)) {
+        const v = main.includes(k) ? +(raw * up).toFixed(1) : raw;
         if (slot.id === 'weapon' && WEAPON_REPLACES.includes(k)) st[k] = v;
         else st[k] = (st[k] || 0) + v;
       }
     }
+    st.maxHp = Math.round(st.maxHp + (gm.hp || 0));
+    st.armor = Math.max(0, +(st.armor + (gm.armor || 0)).toFixed(1));
     // Fertigkeiten: flache Boni addieren, Prozent-Boni multiplizieren
     const bonus = {};
     for (const skill of C.SKILLS) {
@@ -202,9 +210,20 @@ module.exports = {
     // Fertigkeitspunkte und Übung (PRACTICE) verstärken sich gegenseitig nicht, sie addieren sich
     const practice = (key) => this.practiceBonus(p, key);
     const dmgBonus = (st.ranged ? bonus.rangedDmg : bonus.meleeDmg) || 0, dmgPractice = practice(st.ranged ? 'rangedDmg' : 'meleeDmg');
-    st.damage = +(st.damage * (1 + dmgBonus + dmgPractice)).toFixed(1);
-    st.attackSpeed = +(st.attackSpeed * (1 + practice(st.ranged ? 'rangedRate' : 'meleeRate'))).toFixed(2);
-    st.speed = Math.max(80, Math.round(st.speed * (1 + (bonus.speedPct || 0) + practice('speedPct'))));
+    const pct = (k) => (gm[k] || 0) / 100;
+    st.damage = +(st.damage * (1 + dmgBonus + dmgPractice) * (1 + pct('dmgPct'))).toFixed(1);
+    st.attackSpeed = +(st.attackSpeed * (1 + practice(st.ranged ? 'rangedRate' : 'meleeRate')) * Math.max(0.3, 1 + pct('atkPct'))).toFixed(2);
+    st.speed = Math.max(80, Math.round(st.speed * (1 + (bonus.speedPct || 0) + practice('speedPct') + pct('speedPct'))));
+    if (st.ranged) st.range = Math.round(st.range * (1 + pct('reachPct')));
+    else st.reach = Math.round(st.reach * (1 + pct('reachPct')));
+    st.regen = +Math.max(0, (st.regen + (gm.regen || 0)) * (1 + pct('regenPct'))).toFixed(2);
+    // Werte, die nur der Server braucht (Anzeige im Charakterfenster über die Boni-Liste)
+    st.lifesteal = pct('lifesteal');
+    st.yieldBonus = pct('yield');
+    st.lootBonus = pct('loot');
+    st.sprintCost = pct('sprintPct');
+    st.needs = Math.max(0.2, 1 + pct('needsPct'));
+    st.noise = Math.max(0.5, 1 + pct('noisePct'));
     st.doubleGather = +(bonus.doubleGather || 0).toFixed(2);
     st.ammo = st.ranged ? weapon.ammo : null;
     st.reduction = +(st.armor / (st.armor + P.armorFactor)).toFixed(3); // Anteil des abgewehrten Schadens
@@ -213,30 +232,33 @@ module.exports = {
     p.hp = Math.min(p.hp, p.maxHp);
   },
 
-  // Item aus einem Inventar-Slot anlegen; ein vorher getragenes Teil landet im selben Slot
+  // Item aus einem Inventar-Slot anlegen; ein vorher getragenes Teil landet im selben Slot (samt seinen Daten)
   equip(p, slot) {
     const it = p.inv[slot];
     const def = it && lookup(C.EQUIPMENT, it.item);
     if (!def || p.dead) return;
-    const old = p.equip[def.slot];
+    const old = p.equip[def.slot], oldD = p.gear[def.slot];
     p.equip[def.slot] = it.item;
-    p.inv[slot] = old ? { item: old, n: 1 } : null;
+    p.gear[def.slot] = it.d || null;
+    p.inv[slot] = old ? (oldD ? { item: old, n: 1, d: oldD } : { item: old, n: 1 }) : null;
     this.computeStats(p);
   },
 
   // Ablegen: in einen bestimmten freien Slot, irgendeinen freien Slot oder auf den Boden
   unequip(p, slotId, toSlot, drop, x, y) {
     if (p.dead || !C.EQUIP_SLOTS.some((s) => s.id === slotId)) return;
-    const item = p.equip[slotId];
+    const item = p.equip[slotId], d = p.gear[slotId] || null;
     if (!item) return;
     if (drop) {
       p.equip[slotId] = null;
+      p.gear[slotId] = null;
       this.computeStats(p);
-      return this.dropFromHand(p, item, x, y);
+      return this.dropFromHand(p, item, x, y, 1, d);
     }
-    if (toSlot >= 0 && toSlot < p.inv.length && !p.inv[toSlot]) p.inv[toSlot] = { item, n: 1 };
-    else if (Inv.add(p.inv, item, 1) > 0) return this.msg(p, 'Inventar voll!');
+    if (toSlot >= 0 && toSlot < p.inv.length && !p.inv[toSlot]) p.inv[toSlot] = d ? { item, n: 1, d } : { item, n: 1 };
+    else if (Inv.add(p.inv, item, 1, d || undefined) > 0) return this.msg(p, 'Inventar voll!');
     p.equip[slotId] = null;
+    p.gear[slotId] = null;
     this.computeStats(p);
   },
 
@@ -257,10 +279,16 @@ module.exports = {
     if (!Inv.canAfford(p.inv, def.recipe.cost)) return this.msg(p, `Nicht genug Ressourcen für ${def.name}.`);
     Inv.pay(p.inv, def.recipe.cost);
     const n = def.recipe.amount || 1;
-    this.give(p, id, n, p.x, p.y);
+    // Ausrüstung wird als Einzelstück ausgewürfelt (Seltenheit & Boni)
+    const d = equipment ? this.rollGear(id, 'craft', p) : null;
+    if (equipment) this.giveGear(p, id, d);
+    else this.give(p, id, n, p.x, p.y);
     const at = atForge ? forge : p;
     this.events.push([Math.round(at.x), Math.round(at.y), 'up']);
     this.addXp(p, C.XP.craft);
-    this.msg(p, equipment ? `${def.name} hergestellt! Ausrüsten im Charakterfenster [C].` : `${n}× ${def.name} hergestellt!`);
+    const total = Object.values(def.recipe.cost).reduce((a, b) => a + b, 0);
+    this.addPractice(p, 'smithing', 1 + Math.floor(total / 40));
+    const rarity = d ? ` (${C.GEAR.rarities[d.r].name}${d.c ? ', verflucht' : ''})` : '';
+    this.msg(p, equipment ? `${def.name}${rarity} hergestellt! Ausrüsten im Charakterfenster [C].` : `${n}× ${def.name} hergestellt!`);
   },
 };

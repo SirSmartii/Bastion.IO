@@ -39,11 +39,11 @@ module.exports = {
 
   INVENTORY: {
     slots: 20,
-    stack: { wood: 250, stone: 250, gold: 150, bone: 100, scrap: 50, fur: 50, meat: 30, iron_ore: 100, coal: 100, iron: 100, can: 20, bandage: 10, berries: 40, apple: 20, carrot: 20, potato: 20, corn: 20, pumpkin: 10, cooked_meat: 20, baked_potato: 20, roasted_corn: 20, bottle: 5, water: 5, arrow_wood: 100, arrow_stone: 100, arrow_iron: 100, bullet: 120, shell: 60 }, // maximale Stapelgröße pro Slot
+    stack: { wood: 250, stone: 250, gold: 150, bone: 100, scrap: 50, fur: 50, meat: 30, iron_ore: 100, coal: 100, iron: 100, can: 20, bandage: 10, berries: 40, apple: 20, carrot: 20, potato: 20, corn: 20, pumpkin: 10, cooked_meat: 20, baked_potato: 20, roasted_corn: 20, bottle: 5, water: 5, whetstone: 20, essence: 10, ward: 5, arrow_wood: 100, arrow_stone: 100, arrow_iron: 100, bullet: 120, shell: 60 }, // maximale Stapelgröße pro Slot
   },
 
   ITEMS: {
-    names: { wood: 'Holz', stone: 'Stein', gold: 'Gold', bone: 'Knochen', scrap: 'Schrott', fur: 'Fell', meat: 'Fleisch', iron_ore: 'Eisenerz', coal: 'Kohle', iron: 'Eisenbarren', can: 'Konserve', bandage: 'Verband', berries: 'Beeren', apple: 'Apfel', carrot: 'Karotte', potato: 'Kartoffel', corn: 'Maiskolben', pumpkin: 'Kürbis', cooked_meat: 'Gebratenes Fleisch', baked_potato: 'Ofenkartoffel', roasted_corn: 'Gerösteter Mais', bottle: 'Leere Feldflasche', water: 'Feldflasche (Wasser)', arrow_wood: 'Holzpfeil', arrow_stone: 'Steinpfeil', arrow_iron: 'Metallpfeil', bullet: 'Patrone', shell: 'Schrotpatrone' },
+    names: { wood: 'Holz', stone: 'Stein', gold: 'Gold', bone: 'Knochen', scrap: 'Schrott', fur: 'Fell', meat: 'Fleisch', iron_ore: 'Eisenerz', coal: 'Kohle', iron: 'Eisenbarren', can: 'Konserve', bandage: 'Verband', berries: 'Beeren', apple: 'Apfel', carrot: 'Karotte', potato: 'Kartoffel', corn: 'Maiskolben', pumpkin: 'Kürbis', cooked_meat: 'Gebratenes Fleisch', baked_potato: 'Ofenkartoffel', roasted_corn: 'Gerösteter Mais', bottle: 'Leere Feldflasche', water: 'Feldflasche (Wasser)', whetstone: 'Wetzstein', essence: 'Dunkle Essenz', ward: 'Schutzsiegel', arrow_wood: 'Holzpfeil', arrow_stone: 'Steinpfeil', arrow_iron: 'Metallpfeil', bullet: 'Patrone', shell: 'Schrotpatrone' },
     // Verbrauchbar ([H] oder Rechtsklick): food = Sättigung, water = Durst, hp = Leben (negativ schadet),
     // returns = was danach im Inventar bleibt. Rohes wird am Lagerfeuer gar (STRUCTURES.campfire.cook).
     food: {
@@ -69,6 +69,7 @@ module.exports = {
       arrow_stone: { tab: 'ranged', amount: 10, forge: 1, hand: true, cost: { wood: 10, stone: 8 } },
       bandage: { tab: 'supplies', amount: 1, forge: 1, hand: true, cost: { fur: 2 } },
       bottle: { tab: 'supplies', amount: 1, forge: 1, hand: true, cost: { fur: 2, bone: 1 } }, // am See füllen [F]
+      whetstone: { tab: 'supplies', amount: 2, forge: 1, cost: { stone: 30, iron: 1 } }, // zum Verbessern (GEAR.upgrade)
       arrow_iron: { tab: 'ranged', amount: 10, forge: 2, cost: { wood: 10, iron: 1 } },
       // Kohle ist das Schießpulver, Eisen die Hülse
       bullet: { tab: 'guns', amount: 12, forge: 2, cost: { iron: 1, coal: 3 } },
@@ -231,6 +232,8 @@ module.exports = {
         { item: 'rifle', chance: 0.02, min: 1, max: 1 },
         { item: 'iron_hat', chance: 0.1, min: 1, max: 1 },
         { item: 'iron_shirt', chance: 0.05, min: 1, max: 1 },
+        { item: 'essence', chance: 0.05, min: 1, max: 1 },
+        { item: 'ward', chance: 0.02, min: 1, max: 1 },
         { item: 'bandage', chance: 0.25, min: 1, max: 2 },
       ],
     },
@@ -249,6 +252,7 @@ module.exports = {
         { item: 'scrap', chance: 0.85, min: 2, max: 5 },
         { item: 'iron', chance: 0.5, min: 1, max: 4 },
         { item: 'coal', chance: 0.35, min: 2, max: 6 },
+        { item: 'whetstone', chance: 0.4, min: 1, max: 2 },
         { item: 'pick_stone', chance: 0.06, min: 1, max: 1 },
         { item: 'pick_iron', chance: 0.03, min: 1, max: 1 },
         { item: 'axe_stone', chance: 0.05, min: 1, max: 1 },
@@ -432,6 +436,67 @@ module.exports = {
       name: 'Eisenstiefel', slot: 'feet', tab: 'armor', tier: 1, stats: { armor: 5, speed: 10, stamina: 15 },
       recipe: { forge: 2, cost: { iron: 10, fur: 2 } },
     },
+  },
+
+  // Ausrüstungsteile sind Einzelstücke: Seltenheit, Verbesserungsstufe (+1 … +5) und zufällige Boni.
+  // rarities: mods = Anzahl Boni, curse = Chance auf einen Fluch. Ein verfluchtes Teil würfelt seine guten Boni
+  //   curseBoost-mal so stark – ein Tausch, kein reines Pech.
+  // sources: Gewichte der Seltenheiten [Gewöhnlich, Gut, Selten, Episch, Legendär] je nach Herkunft.
+  // upgradeBonus: Hauptwert pro Stufe (Waffen: Schaden, Kleidung: Rüstung & Leben).
+  // upgrade[n-1]: Verbessern auf +n – odds in % [Erfolg, nichts passiert, Stufe −1, zerstört] und Kosten.
+  //   Ein Schutzsiegel (ward) verhindert das Zerstören (dann passiert stattdessen nichts).
+  // reforge: einen Bonus neu würfeln (oder den Fluch entfernen – dann verlieren die Boni ihre Verstärkung);
+  //   jedes Umschmieden desselben Teils kostet growth × mehr. salvage: Anteil der Rezeptkosten beim Zerlegen.
+  GEAR: {
+    upgradeBonus: 0.08,
+    curseBoost: 1.5,
+    rarities: [
+      { id: 'common', name: 'Gewöhnlich', color: '#d8d8d8', mods: 0, curse: 0 },
+      { id: 'good', name: 'Gut', color: '#7ed957', mods: 1, curse: 0.15 },
+      { id: 'rare', name: 'Selten', color: '#5aa9ff', mods: 2, curse: 0.2 },
+      { id: 'epic', name: 'Episch', color: '#c77dff', mods: 3, curse: 0.25 },
+      { id: 'legendary', name: 'Legendär', color: '#ffa53a', mods: 3, curse: 0 },
+    ],
+    sources: {
+      craft: [75, 22, 3, 0, 0], // selbst hergestellt (Übung im Schmieden hebt die Seltenheit manchmal um eine Stufe)
+      loot: [40, 35, 20, 5, 0], // Kisten, Gegner
+      boss: [0, 0, 50, 40, 10],
+    },
+    upgrade: [
+      { odds: [100, 0, 0, 0], cost: { iron: 2, whetstone: 1 } },
+      { odds: [90, 10, 0, 0], cost: { iron: 4, whetstone: 2 } },
+      { odds: [75, 20, 5, 0], cost: { iron: 6, whetstone: 3, gold: 10 } },
+      { odds: [60, 28, 10, 2], cost: { iron: 10, whetstone: 4, gold: 25, essence: 1 } },
+      { odds: [45, 35, 15, 5], cost: { iron: 15, whetstone: 6, gold: 50, essence: 2 } },
+    ],
+    reforge: { cost: { scrap: 3, gold: 15 }, growth: 0.5 },
+    salvage: 0.4,
+    breakScrap: [2, 5], // Schrott, wenn ein Teil beim Verbessern zerbricht
+  },
+  // Mögliche Boni. stat: welcher Wert sich ändert, range: [min, max] (pct: in Prozent, sonst feste Zahl; step: Rundung),
+  // slots: 'weapon' und/oder 'armor' (Kleidung), tool: nur Werkzeug-Waffen (Äxte, Spitzhacken).
+  MODS: {
+    dmg: { name: 'Schaden', stat: 'dmgPct', range: [6, 18], pct: true, slots: ['weapon'] },
+    atk: { name: 'Angriffstempo', stat: 'atkPct', range: [5, 14], pct: true, slots: ['weapon'] },
+    reach: { name: 'Reichweite', stat: 'reachPct', range: [5, 15], pct: true, slots: ['weapon'] },
+    leech: { name: 'Lebensraub', stat: 'lifesteal', range: [2, 6], pct: true, slots: ['weapon'] },
+    yield: { name: 'Chance auf +1 Ertrag', stat: 'yield', range: [5, 20], pct: true, slots: ['weapon'], tool: true },
+    loot: { name: 'Chance auf doppelte Beute', stat: 'loot', range: [3, 10], pct: true, slots: ['weapon', 'armor'] },
+    hp: { name: 'Leben', stat: 'hp', range: [5, 20], slots: ['armor'] },
+    armor: { name: 'Rüstung', stat: 'armor', range: [1, 5], slots: ['armor'] },
+    speed: { name: 'Tempo', stat: 'speedPct', range: [3, 8], pct: true, slots: ['armor'] },
+    regen: { name: 'Regeneration', stat: 'regen', range: [0.2, 0.8], step: 0.1, slots: ['armor'] },
+    sprint: { name: 'Sprint-Ausdauer', stat: 'sprintPct', range: [-15, -5], pct: true, slots: ['armor'] },
+    thrift: { name: 'Hunger & Durst', stat: 'needsPct', range: [-15, -5], pct: true, slots: ['armor'] },
+  },
+  // Flüche: immer schlecht, höchstens einer pro Teil
+  CURSES: {
+    slow: { name: 'Tempo', stat: 'speedPct', range: [-10, -4], pct: true, slots: ['weapon', 'armor'] },
+    clumsy: { name: 'Angriffstempo', stat: 'atkPct', range: [-12, -5], pct: true, slots: ['weapon'] },
+    hungry: { name: 'Hunger & Durst', stat: 'needsPct', range: [10, 25], pct: true, slots: ['weapon', 'armor'] },
+    loud: { name: 'Lärm (Gegner bemerken dich früher)', stat: 'noisePct', range: [15, 30], pct: true, slots: ['weapon', 'armor'] },
+    brittle: { name: 'Rüstung', stat: 'armor', range: [-6, -2], slots: ['armor'] },
+    sluggish: { name: 'Regeneration', stat: 'regenPct', range: [-30, -15], pct: true, slots: ['weapon', 'armor'] },
   },
 
   // Munitionsgruppen. types von schwach nach stark; ohne Auswahl ([R]) wird die stärkste vorhandene benutzt.
@@ -673,6 +738,8 @@ module.exports = {
         { item: 'bone', chance: 0.8, min: 2, max: 4 },
         { item: 'scrap', chance: 0.5, min: 1, max: 2 },
         { item: 'iron_ore', chance: 0.4, min: 2, max: 4 },
+        { item: 'essence', chance: 0.2, min: 1, max: 1 },
+        { item: 'ward', chance: 0.03, min: 1, max: 1 },
       ],
     },
     wolf: {
@@ -701,6 +768,7 @@ module.exports = {
         { item: 'fur', chance: 1, min: 2, max: 4 },
         { item: 'meat', chance: 1, min: 2, max: 4 },
         { item: 'bone', chance: 0.6, min: 2, max: 3 },
+        { item: 'essence', chance: 0.15, min: 1, max: 1 },
       ],
     },
   },
@@ -732,7 +800,8 @@ module.exports = {
   // EP für Stufe L → L+1 = round(base × (L+1)^exp), höchstens max. per: Bonus pro Stufe,
   // stats: der Bonus ändert Werte im Charakterfenster (dann werden sie beim Aufstieg neu berechnet).
   // EP: Laufen 1 pro runDistance Einheiten (Sprinten ×1,5), Holzfällen/Bergbau 1 pro Einheit,
-  //     Schießen/Nahkampf 2 pro Treffer an Gegnern, Plündern 3 pro aufgebrochener Kiste.
+  //     Schießen/Nahkampf 2 pro Treffer an Gegnern, Plündern 3 pro aufgebrochener Kiste,
+  //     Schmieden: Herstellen 1 + Kosten/40, Verbessern 4 + 2 × Zielstufe, Umschmieden 3, Zerlegen 1.
   PRACTICE: {
     max: 20,
     base: 12,
@@ -745,6 +814,11 @@ module.exports = {
       { id: 'shooting', name: 'Schießen', icon: '🎯', desc: '+2 % Fernkampf-Schaden und Feuerrate pro Stufe', stats: true, per: { rangedDmg: 0.02, rangedRate: 0.02 } },
       { id: 'melee', name: 'Nahkampf', icon: '⚔', desc: '+2 % Nahkampf-Schaden und Schlagtempo pro Stufe', stats: true, per: { meleeDmg: 0.02, meleeRate: 0.02 } },
       { id: 'looting', name: 'Plündern', icon: '📦', desc: '+3 % Chance auf doppelte Beute aus Kisten', per: { lootTwice: 0.03 } },
+      {
+        id: 'smithing', name: 'Schmieden', icon: '🔨',
+        desc: 'Verbessern: +1 % Erfolg, −3 % Stufenverlust, −4 % Zerstören (relativ) und +1 % Chance auf bessere Seltenheit beim Herstellen pro Stufe',
+        per: { smithSuccess: 0.01, smithDrop: -0.03, smithBreak: -0.04, smithLuck: 0.01 },
+      },
     ],
   },
 
