@@ -25,7 +25,7 @@ const GRID_WIDTH = PAD * 2 + COLS * SLOT + (COLS - 1) * GAP;
 // ---------- Layout ----------
 
 export function invLayout() {
-  const n = cfg.INVENTORY.slots, head = 40, h = gridHeight(n, head);
+  const n = me ? me.inv.length : cfg.INVENTORY.slots, head = 40, h = gridHeight(n, head); // mit Rucksack mehr Plätze
   const sideBySide = ui.char || (me && me.ch); // Charakter oder Truhe rechts daneben
   const x = Math.round(sideBySide ? W / 2 - GRID_WIDTH - 8 : W / 2 - GRID_WIDTH / 2);
   const y = Math.round(Math.max(80, H / 2 - h / 2 - 40));
@@ -34,7 +34,8 @@ export function invLayout() {
 
 // Behälterfenster rechts neben dem Inventar; Kern-Lager und Ofen haben oben zusätzlich eine Infozeile
 export function chestLayout() {
-  const n = me.ch[1].length, head = 40 + (me.ch[2] ? 78 : me.ch[3] ? 58 : 0), h = gridHeight(n, head);
+  const s = structs.get(me.ch[0]), modes = s && cfg.STRUCTURES[s.type].modes;
+  const n = me.ch[1].length, head = 40 + (me.ch[2] ? 78 : me.ch[3] ? 58 + (modes && modes.length > 1 ? 34 : 0) : 0), h = gridHeight(n, head);
   const x = Math.round(W / 2 + 8), y = invLayout().panel.y;
   return { panel: { x, y, w: GRID_WIDTH, h }, slots: slotGrid(n, x, y, head) };
 }
@@ -98,7 +99,7 @@ export function drawInventory() {
   drawSlots(slots, me.inv, 0, hoverSlot);
 
   const chestType = me.ch && structs.get(me.ch[0]) ? structs.get(me.ch[0]).type : null;
-  const target = me.ch ? (me.ch[2] ? 'ins Kern-Lager' : chestType === 'campfire' ? 'ins Lagerfeuer' : me.ch[3] ? 'in den Ofen' : 'in die Truhe') : null;
+  const target = me.ch ? (me.ch[2] ? 'ins Kern-Lager' : chestType === 'campfire' ? 'ins Lagerfeuer' : chestType === 'tanner' ? 'ins Gerbgestell' : me.ch[3] ? 'in den Ofen' : 'in die Truhe') : null;
   const hint = target ? `Rechtsklick: Stapel ${target}` : 'Ziehen: sortieren / droppen · Shift: Hälfte · Rechtsklick: nutzen';
   text(hint, P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#8f9c80', align: 'center' });
 
@@ -117,7 +118,7 @@ export function drawChest() {
   // Bei Team-Truhen den Besitzer nennen
   const owner = s && s.owner !== myId && me.team ? me.team.m.find((m) => m[0] === s.owner) : null;
   const campfire = s && s.type === 'campfire';
-  const title = upkeep ? '🏰 Kern-Lager' : campfire ? '🔥 Lagerfeuer' : furnace ? '🔥 Schmelzofen' : '📦 Truhe';
+  const title = upkeep ? '🏰 Kern-Lager' : campfire ? '🔥 Lagerfeuer' : s && s.type === 'tanner' ? '🟫 Gerbgestell' : furnace ? '🔥 Schmelzofen' : '📦 Truhe';
   text(owner ? `${title} von ${owner[1]}` : title, P.x + 18, P.y + 27, { size: 18, bold: true, color: '#f2d27a' });
   text(`${box.filter(Boolean).length}/${box.length} · [F] schließen`, P.x + P.w - 18, P.y + 27, { size: 13, color: '#c2ab88', align: 'right' });
   if (upkeep) drawUpkeepInfo(upkeep, P.x + 18, P.y + 52, P.w - 36);
@@ -141,18 +142,36 @@ function drawUpkeepInfo(up, x, y, w) {
   else text(`Vorrat reicht für ${up.n >= 999 ? '∞' : up.n} Zahlung(en) · ${supplyText(up)}`, x, y + 40, { size: 12, color: up.n < 2 ? '#ffb36a' : '#9fe870' });
 }
 
-// Ofen { a: brennt, p: Fortschritt, t: Sekunden pro Barren, n: Barren aus dem vorhandenen Material }
+// Ofen & Gerbgestell { a: läuft, p: Fortschritt, t: Sekunden pro Durchgang, n: wie oft das Material noch reicht,
+//   m: Betriebsart } – Rezepte der Betriebsart, Fortschritt und (bei mehreren) Knöpfe zum Umschalten
 function drawFurnaceInfo(f, x, y, w) {
-  const { cost, out } = cfg.STRUCTURES.furnace.smelt;
+  const s = structs.get(me.ch[0]), def = s && cfg.STRUCTURES[s.type];
+  if (!def || !def.modes) return;
+  const mode = def.modes.find((m) => m.id === f.m) || def.modes[0];
   rrect(x - 6, y - 16, w + 12, 48, 8, 'rgba(0,0,0,0.3)', f.a ? '#e8913a' : 'rgba(255,255,255,0.08)', 1.5);
-  text(`${fmtCost(cost)} → 1${RES_ICON[out]} alle ${String(f.t).replace('.', ',')} s`, x, y, { size: 13, bold: true, color: '#f2e2c4' });
+  const recipes = mode.recipes.map((r) => `${fmtCost(r.cost)} → ${r.n || 1}${RES_ICON[r.out]}`).join('   ');
+  text(`${recipes}  ·  ${String(f.t).replace('.', ',')} s`, x, y, { size: 12, bold: true, color: '#f2e2c4' });
   if (f.a) {
     rrect(x, y + 10, w * 0.55, 10, 4, 'rgba(0,0,0,0.5)');
     rrect(x, y + 10, Math.max(4, w * 0.55 * f.p), 10, 4, '#ff9a3a');
-    text(`brennt · noch ${f.n} Barren`, x + w, y + 19, { size: 12, color: '#ffc27a', align: 'right' });
+    text(`läuft · noch ${f.n}×`, x + w, y + 19, { size: 12, color: '#ffc27a', align: 'right' });
   } else {
-    text(f.n > 0 ? 'Kein Platz für Barren – entnimm welche.' : 'Aus – lege Eisenerz und Kohle hinein.', x, y + 20, { size: 12, color: '#c2ab88' });
+    const need = [...new Set(mode.recipes.flatMap((r) => Object.keys(r.cost)))].map((i) => cfg.ITEMS.names[i]).join(', ');
+    text(f.n > 0 ? 'Kein Platz für das Ergebnis – entnimm etwas.' : `Aus – lege ${need} hinein.`, x, y + 20, { size: 12, color: '#c2ab88' });
   }
+  for (const b of modeButtons()) {
+    const active = b.id === mode.id, locked = b.level && s.level + 1 < b.level, hover = inRect(mouse.x, mouse.y, b.rect);
+    rrect(b.rect.x, b.rect.y, b.rect.w, b.rect.h, 6, active ? '#c98a3c' : hover ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.35)', active ? '#8a5a20' : 'rgba(255,255,255,0.12)', 1.5);
+    text(locked ? `${b.name} · Lv ${b.level}` : b.name, b.rect.x + b.rect.w / 2, b.rect.y + 17, { size: 11, bold: true, align: 'center', color: active ? '#1f1409' : locked ? '#8a8070' : '#e9e0d0' });
+  }
+}
+
+// Knöpfe für die Betriebsart des offenen Ofens (leer, wenn es nur eine gibt)
+export function modeButtons() {
+  const s = me && me.ch && structs.get(me.ch[0]), def = s && cfg.STRUCTURES[s.type];
+  if (!def || !def.modes || def.modes.length < 2) return [];
+  const { panel: P } = chestLayout(), n = def.modes.length, gap = 6, w = (P.w - 36 - gap * (n - 1)) / n;
+  return def.modes.map((m, i) => ({ id: m.id, name: m.name, level: m.level, rect: { x: P.x + 18 + i * (w + gap), y: P.y + 88, w, h: 26 } }));
 }
 
 // Lagerfeuer { a: brennt, p: Fortschritt, t: Sekunden pro Stück, n: rohe Stücke, f: Sekunden Brennstoff }
@@ -178,6 +197,7 @@ export function foodText(item) {
   if (def.food) parts.push(`+${def.food} 🍖 Hunger`);
   if (def.water) parts.push(`+${def.water} 💧 Durst`);
   if (def.hp) parts.push(`${def.hp > 0 ? '+' : ''}${def.hp} ❤ Leben`);
+  if (def.buff) parts.push(def.buff.regen ? `${def.buff.regen}× Regeneration für ${def.buff.t} s` : `+${Math.round((def.buff.staminaRegen - 1) * 100)} % Ausdauer-Erholung für ${def.buff.t} s`);
   const cooked = cfg.STRUCTURES.campfire.cook[item];
   if (cooked) parts.push(`am Lagerfeuer → ${cfg.ITEMS.names[cooked]}`);
   return parts.join(' · ');

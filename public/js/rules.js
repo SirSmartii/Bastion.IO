@@ -22,7 +22,7 @@ export function nearForge() {
   return !!me && !!me.forge && !me.dead && Math.hypot(me.forge[1] - me.x, me.forge[2] - me.y) <= cfg.STRUCTURES.forge.useRange;
 }
 
-const CONTAINERS = ['storage', 'furnace', 'core', 'campfire'];
+const CONTAINERS = ['storage', 'furnace', 'core', 'campfire', 'tanner'];
 
 // Steht man am Seeufer (zum Trinken)?
 export function nearWater() {
@@ -31,6 +31,13 @@ export function nearWater() {
 }
 
 // Nächster nutzbarer Behälter (Truhe, Ofen, Kern – eigene oder vom Team) in Reichweite: { s, d } oder null
+// Steht man an einem brennenden Lagerfeuer (eigenes oder vom Team)? Nötig für Rezepte mit campfire
+export function nearFire() {
+  const R = cfg.STRUCTURES.campfire.useRange;
+  for (const s of structs.values()) if (s.type === 'campfire' && s.active && isAllied(s.owner) && Math.hypot(s.x - me.x, s.y - me.y) <= R) return true;
+  return false;
+}
+
 export function nearestContainer() {
   if (!me || me.dead) return null;
   let best = null;

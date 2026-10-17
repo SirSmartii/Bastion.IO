@@ -3,7 +3,7 @@
 import { ctx, cfg, me, myId, now, players, clock, myAngle, ui, mouse, screenToWorld, drawInto } from '../state.js';
 import { TAU, LEVEL_COLORS, LEVEL_DARK, ZOMBIE_COLORS, ARROW_TIPS } from '../constants.js';
 import { circle, rrect, hpBar, outlinedText, wrapText } from './primitives.js';
-import { drawItemIcon, drawWeapon, drawGun } from './items.js';
+import { drawItemIcon, drawWeapon, drawGun, gearColors } from './items.js';
 import { art, artMisses } from '../assets.js';
 import { isAllied, snap, placementError, structSize } from '../rules.js';
 import { bubbles } from '../chat.js';
@@ -40,6 +40,8 @@ const STRUCTURE_SHAPES = {
   spike(s, h, C, D) { art('structures/spike', { C, D }); },
   window(s, h, C, D) { art('structures/window', { C, D }); },
   storage(s, h, C, D) { art('structures/storage', { C, D }); },
+  tanner() { art('structures/tanner'); },
+  sleeping_bag() { art('structures/sleeping_bag'); },
 
   turret(s, h, C, D) {
     art('structures/turret_base', { C, D });
@@ -277,10 +279,11 @@ export function drawPlayer(p) {
   ctx.save();
   ctx.translate(p.dx, p.dy);
   ctx.rotate(isMe ? myAngle : p.da);
-  const [weapon, head, chest] = p.look || [];
+  const [weapon, head, chest, back] = p.look || [];
   drawHandsAndWeapon(cfg.EQUIPMENT[weapon], r, now - p.swingT);
   ctx.save();
   ctx.scale(r / 24, r / 24); // assets/player ist für Radius 24 gezeichnet
+  if (cfg.EQUIPMENT[back]) art('player/worn/backpack', gearColors(cfg.EQUIPMENT[back])); // Rucksack hinter dem Körper
   art('player/body', { C: isMe ? SKIN : SKIN_OTHER });
   drawClothes(cfg.EQUIPMENT[chest], cfg.EQUIPMENT[head]);
   ctx.restore();
@@ -355,8 +358,8 @@ function drawHandsAndWeapon(def, r, t) {
 
 // Getragene Kleidung von oben (assets/player/worn, Radius 24): Ring um den Körper, Helm auf dem Kopf
 function drawClothes(chestDef, headDef) {
-  if (chestDef) art(`player/worn/${chestDef.tier ? 'iron' : 'fur'}_chest`);
-  if (headDef) art(`player/worn/${headDef.tier ? 'iron' : 'fur'}_head`);
+  if (chestDef) art(`player/worn/${chestDef.style}_chest`, gearColors(chestDef));
+  if (headDef) art(`player/worn/${headDef.style}_head`, gearColors(headDef));
 }
 
 function drawProtectionBubble(p, r) {

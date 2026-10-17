@@ -16,7 +16,7 @@ import { drawInventory, drawChest, drawDragged, supplyText } from './inventory.j
 import { drawCharacter } from './character.js';
 import { panels } from './panels.js';
 import { artAt } from '../assets.js';
-import { woodPanel, parchment, segmentBar, WOOD, WOOD_DARK, PARCHMENT, PARCHMENT_DARK, INK, INK_LIGHT, CREAM } from './theme.js';
+import { woodPanel, parchment, segmentBar, woodButton, WOOD, WOOD_DARK, PARCHMENT, PARCHMENT_DARK, INK, INK_LIGHT, CREAM } from './theme.js';
 
 // Statusbrett unten links: so hoch, darüber beginnt der Chat (chat.js)
 export const STATUS_H = 142, STATUS_W = 300;
@@ -43,6 +43,7 @@ export function hotbarRects() {
 
 export function drawHud() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (!me.dead) ui.spawnChoice = null; // Wahl im Todesbildschirm gilt nur bis zum Aufwachen
   const toastY = drawSurvivalTime();
   toasts.forEach((t, i) => {
     ctx.globalAlpha = Math.min(1, t.life);
@@ -75,8 +76,27 @@ export function drawHud() {
     ctx.fillStyle = 'rgba(40,0,0,0.45)';
     ctx.fillRect(0, 0, W, H);
     text('Du wurdest überrannt!', W / 2, H / 2 - 10, { size: 40, bold: true, align: 'center', color: '#ff6b6b' });
-    text(`Respawn in ${Math.ceil(me.rt)}s ${me.core ? 'an deiner Basis' : ''}`, W / 2, H / 2 + 28, { size: 18, align: 'center' });
+    const buttons = deathButtons();
+    if (!buttons.length) {
+      text(`Du wachst in ${Math.ceil(me.rt)} s irgendwo in der Welt auf`, W / 2, H / 2 + 28, { size: 18, align: 'center' });
+      text('Tipp: Lege einen Schlafsack (Baumenü [B]), um dort aufzuwachen.', W / 2, H / 2 + 54, { size: 14, align: 'center', color: '#ffd9a0' });
+    } else {
+      text(me.rt > 0 ? `Wo willst du aufwachen? (frühestens in ${Math.ceil(me.rt)} s)` : 'Wo willst du aufwachen?', W / 2, H / 2 + 28, { size: 18, align: 'center' });
+      for (const b of buttons) {
+        const chosen = ui.spawnChoice === b.id, ready = !b.wait;
+        woodButton(b.rect, b.wait ? `${b.label} · frei in ${b.wait} s` : b.label, ready && inRect(mouse.x, mouse.y, b.rect), chosen ? '#4f6b2a' : ready ? undefined : '#4a3a2a');
+      }
+    }
   }
+}
+
+// Todesbildschirm: ein Knopf pro Schlafsack (me.sb: [id, x, y, Sekunden bis frei]) und "Irgendwo"
+export function deathButtons() {
+  if (!me || !me.dead || !me.sb || !me.sb.length) return [];
+  const opts = me.sb.map(([id, , , wait], i) => ({ id, label: `🛏 Schlafsack ${i + 1}`, wait }));
+  opts.push({ id: 0, label: '🎲 Irgendwo', wait: 0 });
+  const w = 230, h = 40, gap = 12, total = opts.length * w + (opts.length - 1) * gap, x0 = Math.round(W / 2 - total / 2);
+  return opts.map((o, i) => ({ ...o, rect: { x: x0 + i * (w + gap), y: Math.round(H / 2 + 50), w, h } }));
 }
 
 // ---------- Oben: wie lange man schon lebt ----------
@@ -196,6 +216,7 @@ function drawHotbar() {
     ctx.globalAlpha = 1;
     if (!def) text(String(count), r.x + r.w - 5, r.y + r.h - 6, { size: 12, bold: true, align: 'right', color: count ? INK : '#b02a1a' });
     else if (equipped) text('E', r.x + r.w - 6, r.y + 14, { size: 11, bold: true, align: 'right', color: '#3f6f1a' });
+    if (equipped && item === 'torch' && me.tl) text(fmtDuration(me.tl), r.x + r.w - 5, r.y + r.h - 6, { size: 11, bold: true, align: 'right', color: me.tl < 30 ? '#b02a1a' : INK }); // Fackel brennt noch
     if (equipped && def.ammo) {
       // Fernwaffe: Munitionsvorrat in der Ecke
       const ammo = me.res[me.ammo] || 0;
@@ -280,6 +301,7 @@ function drawMinimap() {
   }
   drawMinimapTerrain(mx, my, k);
   if (me.forge) rrect(mx(me.forge[1]) - 2.5, my(me.forge[2]) - 2.5, 5, 5, 1, '#ff9a3c');
+  for (const [, bx, by] of me.bags || []) rrect(mx(bx) - 3, my(by) - 2, 6, 4, 1.5, '#7fa8e0', '#1d2a40', 1); // Schlafsäcke
   const e = minimap.e;
   for (let i = 0; i < e.length; i += 3) {
     const hostile = e[i + 2];

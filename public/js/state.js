@@ -96,7 +96,9 @@ export const ui = {
   buildRot: 0, // Drehung des zu platzierenden Gebäudes (0–3, [R])
   buildCat: 'base', // gewählter Reiter im Baumenü
   forgeTab: 'axes', // gewählter Reiter in der Schmiede
+  forgeMat: null, // gewähltes Material im Reiter (null = das beste, das die Schmiede kann)
   upgSel: null, // im Reiter "Verbessern" gewähltes Teil { src: 'inv' | 'eq', i }
   upgWard: false, // Schutzsiegel beim Verbessern benutzen
+  spawnChoice: null, // im Todesbildschirm gewählter Schlafsack (0 = irgendwo)
   pendingTooltip: null, // wird nach allen Fenstern gezeichnet, damit nichts sie verdeckt
 };

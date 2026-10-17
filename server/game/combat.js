@@ -117,8 +117,12 @@ module.exports = {
     if (def.pick) return this.harvest(p, o, def);
     // Spitzhacken bauen Gestein mit ihrem mine-Wert ab, sonst zählt der normale Abbau-Wert
     const power = def.hard && p.stats.mine ? p.stats.mine : p.stats.gather;
-    if (def.tool && power < def.tool) {
-      if (this.now - p.fullMsgT > 2) { p.fullMsgT = this.now; this.msg(p, 'Zu hart – dafür brauchst du mindestens eine Steinaxt oder Spitzhacke.'); }
+    if (def.tool && (p.stats.tool || 0) < def.tool) {
+      if (this.now - p.fullMsgT > 2) {
+        p.fullMsgT = this.now;
+        const need = Object.values(C.MATERIALS).find((m) => m.tier === def.tool);
+        this.msg(p, `Zu hart – dafür brauchst du mindestens eine Axt oder Spitzhacke aus ${need ? need.name : 'besserem Material'}.`);
+      }
       return;
     }
     // Sammler-Skill: Chance auf doppelten Ertrag
@@ -217,6 +221,8 @@ module.exports = {
 
     p.dead = true;
     p.hp = 0;
+    p.spawnChoice = null;
+    p.fishing = null;
     p.bestAlive = Math.max(p.bestAlive, p.alive);
     p.alive = 0;
     p.respawnT = C.PLAYER.respawnTime;

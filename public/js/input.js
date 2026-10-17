@@ -16,8 +16,8 @@ import { nearForge, nearestContainer, snap, placementError, nearWater } from './
 import { togglePanel, toggleInventory, toggleCharacter, closeAllWindows, anyWindowOpen, openContainer, closeContainer } from './ui/windows.js';
 import { panels } from './ui/panels.js';
 import { onOpen as onBuildMenuOpen } from './ui/build.js';
-import { hotbarRects } from './ui/hud.js';
-import { invSlotAt, chestSlotAt, overItemWindows, dragStack } from './ui/inventory.js';
+import { hotbarRects, deathButtons } from './ui/hud.js';
+import { invSlotAt, chestSlotAt, overItemWindows, dragStack, modeButtons } from './ui/inventory.js';
 import { eqSlotAt } from './ui/character.js';
 
 // ---------- Tastatur ----------
@@ -148,6 +148,12 @@ canvas.addEventListener('wheel', () => {
 }, { passive: true });
 
 function leftClick(x, y, shift) {
+  // Tot: Wahl, wo man aufwacht (Schlafsack oder irgendwo)
+  if (me.dead && !ui.panel) {
+    const b = deathButtons().find((d) => inRect(x, y, d.rect));
+    if (b && !b.wait) { ui.spawnChoice = b.id; send({ t: 'spawn', id: b.id }); }
+    return;
+  }
   // Hotbar: Slot benutzen bzw. Bau-Button
   const hotbarSlot = hotbarRects().findIndex((r) => inRect(x, y, r));
   if (hotbarSlot >= 0 && hotbarSlot < cfg.HOTBAR_SIZE) {
@@ -165,6 +171,8 @@ function leftClick(x, y, shift) {
 
   // Bei offenem Inventar/Charakter steuert die Maus nur die Fenster: Ziehen beginnen
   if (ui.inv || ui.char) {
+    const mode = ui.inv && me.ch ? modeButtons().find((b) => inRect(x, y, b.rect)) : null;
+    if (mode) return send({ t: 'mode', id: me.ch[0], m: mode.id }); // Betriebsart von Ofen & Co.
     const invSlot = invSlotAt(x, y), chestSlot = chestSlotAt(x, y), eqSlot = eqSlotAt(x, y);
     if (invSlot >= 0 && me.inv[invSlot]) ui.drag = { slot: invSlot, half: shift, c: 0 };
     else if (chestSlot >= 0 && me.ch[1][chestSlot]) ui.drag = { slot: chestSlot, half: shift, c: 1 };

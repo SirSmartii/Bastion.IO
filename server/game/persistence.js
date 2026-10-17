@@ -22,26 +22,33 @@ module.exports = {
     };
   },
 
+  // Umbenannte Items alter Spielstände (ITEM_ALIASES, z. B. Gold-Waffen → Bronze)
+  migrateItem(id) {
+    return (typeof id === 'string' && C.ITEM_ALIASES[id]) || id;
+  },
+
   // Gespeicherten Stand übernehmen – defensiv, damit geänderte Configs alte Spielstände nicht kaputt machen
   applySave(p, d) {
     p.x = clamp(num(d.x, C.WORLD_SIZE / 2), p.r, C.WORLD_SIZE - p.r);
     p.y = clamp(num(d.y, C.WORLD_SIZE / 2), p.r, C.WORLD_SIZE - p.r);
 
-    // Slot für Slot zurücklegen; unbekannte Items fallen weg, Überzähliges geht in freie Slots
-    p.inv = Inv.create();
-    (d.inv || []).forEach((s, i) => {
-      if (!s || !this.isKnownItem(s[0]) || !(s[1] > 0)) return;
-      const gear = this.cleanGear(s[0], s[2]);
-      if (i < p.inv.length && !p.inv[i] && s[1] <= Inv.stackOf(s[0])) p.inv[i] = gear ? { item: s[0], n: s[1] | 0, d: gear } : { item: s[0], n: s[1] | 0 };
-      else Inv.add(p.inv, s[0], s[1] | 0, gear || undefined);
-    });
+    // Ausrüstung zuerst: der Rucksack bestimmt, wie groß das Inventar ist
     p.gear = {};
     for (const slot of C.EQUIP_SLOTS) {
-      const def = lookup(C.EQUIPMENT, d.equip && d.equip[slot.id]);
-      p.equip[slot.id] = def && def.slot === slot.id ? d.equip[slot.id] : null;
+      const id = this.migrateItem(d.equip && d.equip[slot.id]), def = lookup(C.EQUIPMENT, id);
+      p.equip[slot.id] = def && def.slot === slot.id ? id : null;
       p.gear[slot.id] = p.equip[slot.id] ? this.cleanGear(p.equip[slot.id], d.gear && d.gear[slot.id]) : null;
     }
-    (d.hotbar || []).slice(0, C.HOTBAR_SIZE).forEach((item, i) => { p.hotbar[i] = this.isKnownItem(item) ? item : null; });
+    // Slot für Slot zurücklegen; unbekannte Items fallen weg, Überzähliges geht in freie Slots
+    p.inv = Inv.create(this.invSizeFor(p.equip.back));
+    (d.inv || []).forEach((s, i) => {
+      const item = s && this.migrateItem(s[0]);
+      if (!s || !this.isKnownItem(item) || !(s[1] > 0)) return;
+      const gear = this.cleanGear(item, s[2]);
+      if (i < p.inv.length && !p.inv[i] && s[1] <= Inv.stackOf(item)) p.inv[i] = gear ? { item, n: s[1] | 0, d: gear } : { item, n: s[1] | 0 };
+      else Inv.add(p.inv, item, s[1] | 0, gear || undefined);
+    });
+    (d.hotbar || []).slice(0, C.HOTBAR_SIZE).forEach((id, i) => { const item = this.migrateItem(id); p.hotbar[i] = this.isKnownItem(item) ? item : null; });
 
     p.level = Math.max(1, num(d.level, 1) | 0);
     p.xp = Math.max(0, num(d.xp));
@@ -92,6 +99,7 @@ module.exports = {
       const o = { type: s.type, x: s.x, y: s.y, level: s.level, hp: Math.round(s.hp), rot: s.rot };
       if (s.items) o.items = s.items.map((it) => (it ? (it.d ? [it.item, it.n, it.d] : [it.item, it.n]) : 0));
       if (s.type === 'core') { o.upkeepT = Math.round(s.upkeepT); o.decaying = !!s.decaying; }
+      if (s.mode) o.mode = s.mode;
       return o;
     });
   },
@@ -100,7 +108,8 @@ module.exports = {
   loadBases() {
     if (!this.db) return;
     for (const { accountId, structures } of this.db.loadBases()) {
-      if (!structures.some((o) => o.type === 'core')) continue; // ohne Kern ist eine Basis wertlos
+      // Ohne Kern ist eine Basis wertlos – Schlafsäcke bleiben aber auch ohne Basis erhalten
+      if (!structures.some((o) => o.type === 'core' || o.type === 'sleeping_bag')) continue;
       const owner = ACCOUNT_ID_BASE + accountId;
       for (const o of structures) this.loadStructure(o, owner);
       this.savedOwners.add(accountId);
@@ -115,11 +124,13 @@ module.exports = {
     s.hp = clamp(num(o.hp, L.hp), 1, L.hp);
     if (s.items) {
       (o.items || []).forEach((it, i) => {
-        if (!it || i >= s.items.length || !this.isKnownItem(it[0]) || !(it[1] > 0)) return;
-        const gear = this.cleanGear(it[0], it[2]);
-        s.items[i] = gear ? { item: it[0], n: it[1] | 0, d: gear } : { item: it[0], n: it[1] | 0 };
+        const item = it && this.migrateItem(it[0]);
+        if (!it || i >= s.items.length || !this.isKnownItem(item) || !(it[1] > 0)) return;
+        const gear = this.cleanGear(item, it[2]);
+        s.items[i] = gear ? { item, n: it[1] | 0, d: gear } : { item, n: it[1] | 0 };
       });
     }
+    if (C.STRUCTURES[s.type].modes && C.STRUCTURES[s.type].modes.some((m) => m.id === o.mode)) s.mode = o.mode;
     if (s.type === 'core') {
       s.upkeepT = clamp(num(o.upkeepT, C.UPKEEP.interval), 0, C.UPKEEP.interval);
       s.decaying = !!o.decaying;

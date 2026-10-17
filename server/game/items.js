@@ -122,7 +122,19 @@ module.exports = {
     if (def.hp) p.hp = clamp(p.hp + def.hp, 1, p.maxHp);
     p.eatT = this.now;
     this.events.push([Math.round(p.x), Math.round(p.y), 'eat', def.hp || 0, p.id, item]);
-    if (def.hp < 0) this.msg(p, 'Rohes Fleisch bekommt dir nicht – brate es lieber am Lagerfeuer.');
+    if (def.hp < 0) this.msg(p, `${C.ITEMS.names[item]} roh bekommt dir nicht – brate es lieber am Lagerfeuer.`);
+    // Wirkung auf Zeit (z. B. Eintopf: doppelte Regeneration)
+    if (def.buff) {
+      p.buffs = p.buffs || {};
+      for (const [k, v] of Object.entries(def.buff)) if (k !== 't') p.buffs[k] = { v, until: this.now + def.buff.t };
+      this.msg(p, `${C.ITEMS.names[item]}: ${def.buff.regen ? 'doppelte Regeneration' : 'schnellere Ausdauer-Erholung'} für ${def.buff.t} s.`);
+    }
+  },
+
+  // Faktor einer laufenden Wirkung (1 = keine)
+  buffFactor(p, k) {
+    const b = p.buffs && p.buffs[k];
+    return b && b.until > this.now ? b.v : 1;
   },
 
   bestFoodSlot(p) {
@@ -178,12 +190,12 @@ module.exports = {
     const P = C.PLAYER;
     const gm = this.gearMods(p); // Boni & Flüche der Ausrüstung
     const st = {
-      maxHp: P.hp, armor: 0, damage: P.fistDamage, gather: P.fistGather, mine: 0, // mine 0 = Gestein wie alles andere (gather)
+      maxHp: P.hp, armor: 0, damage: P.fistDamage, gather: P.fistGather, mine: 0, tool: 0, // mine 0 = Gestein wie alles andere (gather)
       speed: P.speed, attackSpeed: +(1 / P.attackCooldown).toFixed(2), regen: P.regen, reach: P.reach,
       stamina: P.stamina, range: 0,
     };
     // Waffen ersetzen die Faustwerte, alles andere addiert sich
-    const WEAPON_REPLACES = ['damage', 'gather', 'mine', 'attackSpeed', 'reach', 'range'];
+    const WEAPON_REPLACES = ['damage', 'gather', 'mine', 'tool', 'attackSpeed', 'reach', 'range'];
     // Verbesserungsstufe: Waffen mehr Schaden, Kleidung mehr Rüstung & Leben
     const MAIN_STATS = { weapon: ['damage'], armor: ['armor', 'maxHp'] };
     for (const slot of C.EQUIP_SLOTS) {
@@ -232,15 +244,37 @@ module.exports = {
     p.hp = Math.min(p.hp, p.maxHp);
   },
 
+  // Inventargröße: Grundplätze + Rucksack (EQUIPMENT[*].slots)
+  invSizeFor(backItem) {
+    const def = backItem && C.EQUIPMENT[backItem];
+    return C.INVENTORY.slots + ((def && def.slots) || 0);
+  },
+
+  // Inventar auf size Plätze bringen; verkleinern nur, wenn die wegfallenden Plätze leer sind (except: dieser zählt nicht)
+  resizeInventory(p, size, except = -1) {
+    if (p.inv.some((s, i) => s && i >= size && i !== except)) return false;
+    p.inv.length = Math.min(p.inv.length, size);
+    while (p.inv.length < size) p.inv.push(null);
+    return true;
+  },
+
   // Item aus einem Inventar-Slot anlegen; ein vorher getragenes Teil landet im selben Slot (samt seinen Daten)
   equip(p, slot) {
     const it = p.inv[slot];
     const def = it && lookup(C.EQUIPMENT, it.item);
     if (!def || p.dead) return;
     const old = p.equip[def.slot], oldD = p.gear[def.slot];
+    if (def.slot === 'back') {
+      // Rucksack wechseln: die Plätze, die wegfallen, müssen leer sein – und das alte Teil muss in den Slot passen
+      const size = this.invSizeFor(it.item);
+      if ((old && slot >= size) || p.inv.some((s, i) => s && i >= size && i !== slot)) {
+        return this.msg(p, 'Räume zuerst die Rucksack-Plätze leer.');
+      }
+    }
     p.equip[def.slot] = it.item;
     p.gear[def.slot] = it.d || null;
     p.inv[slot] = old ? (oldD ? { item: old, n: 1, d: oldD } : { item: old, n: 1 }) : null;
+    if (def.slot === 'back') this.resizeInventory(p, this.invSizeFor(it.item));
     this.computeStats(p);
   },
 
@@ -249,6 +283,8 @@ module.exports = {
     if (p.dead || !C.EQUIP_SLOTS.some((s) => s.id === slotId)) return;
     const item = p.equip[slotId], d = p.gear[slotId] || null;
     if (!item) return;
+    // Rucksack ablegen: nur mit leeren Rucksack-Plätzen
+    if (slotId === 'back' && !this.resizeInventory(p, C.INVENTORY.slots)) return this.msg(p, 'Räume zuerst die Rucksack-Plätze leer.');
     if (drop) {
       p.equip[slotId] = null;
       p.gear[slotId] = null;
@@ -256,7 +292,10 @@ module.exports = {
       return this.dropFromHand(p, item, x, y, 1, d);
     }
     if (toSlot >= 0 && toSlot < p.inv.length && !p.inv[toSlot]) p.inv[toSlot] = d ? { item, n: 1, d } : { item, n: 1 };
-    else if (Inv.add(p.inv, item, 1, d || undefined) > 0) return this.msg(p, 'Inventar voll!');
+    else if (Inv.add(p.inv, item, 1, d || undefined) > 0) {
+      if (slotId === 'back') this.resizeInventory(p, this.invSizeFor(item)); // Rucksack bleibt an
+      return this.msg(p, 'Inventar voll!');
+    }
     p.equip[slotId] = null;
     p.gear[slotId] = null;
     this.computeStats(p);
@@ -269,6 +308,19 @@ module.exports = {
     const equipment = lookup(C.EQUIPMENT, id), stackRecipe = lookup(C.ITEMS.recipes, id);
     const def = equipment || (stackRecipe && { name: C.ITEMS.names[id], recipe: stackRecipe });
     if (!def || !def.recipe || p.dead) return;
+    // Kochen: nur neben einem brennenden Lagerfeuer (eigenes oder vom Team)
+    if (def.recipe.campfire) {
+      const fire = [...this.statics.query(p.x, p.y, C.STRUCTURES.campfire.useRange)]
+        .find((o) => o.kind === 's' && o.type === 'campfire' && o.active && this.allied(p, o.owner) && Math.hypot(o.x - p.x, o.y - p.y) <= C.STRUCTURES.campfire.useRange);
+      if (!fire) return this.msg(p, `${def.name} kochst du an einem brennenden Lagerfeuer.`);
+      if (!Inv.canAfford(p.inv, def.recipe.cost)) return this.msg(p, `Nicht genug Zutaten für ${def.name}.`);
+      Inv.pay(p.inv, def.recipe.cost);
+      this.give(p, id, def.recipe.amount || 1, p.x, p.y);
+      for (const [item, n] of Object.entries(def.recipe.returns || {})) this.give(p, item, n, p.x, p.y);
+      this.events.push([Math.round(fire.x), Math.round(fire.y), 'up']);
+      this.addXp(p, C.XP.craft);
+      return this.msg(p, `${def.name} gekocht!`);
+    }
     // An der Schmiede alles bis zu ihrem Level; unterwegs nur einfache Rezepte (hand)
     const forge = p.forge;
     const atForge = !!forge && Math.hypot(forge.x - p.x, forge.y - p.y) <= C.STRUCTURES.forge.useRange;
@@ -281,7 +333,7 @@ module.exports = {
     const n = def.recipe.amount || 1;
     // Ausrüstung wird als Einzelstück ausgewürfelt (Seltenheit & Boni)
     const d = equipment ? this.rollGear(id, 'craft', p) : null;
-    if (equipment) this.giveGear(p, id, d);
+    if (equipment) for (let i = 0; i < n; i++) this.giveGear(p, id, i ? this.rollGear(id, 'craft', p) : d);
     else this.give(p, id, n, p.x, p.y);
     const at = atForge ? forge : p;
     this.events.push([Math.round(at.x), Math.round(at.y), 'up']);
@@ -289,6 +341,6 @@ module.exports = {
     const total = Object.values(def.recipe.cost).reduce((a, b) => a + b, 0);
     this.addPractice(p, 'smithing', 1 + Math.floor(total / 40));
     const rarity = d ? ` (${C.GEAR.rarities[d.r].name}${d.c ? ', verflucht' : ''})` : '';
-    this.msg(p, equipment ? `${def.name}${rarity} hergestellt! Ausrüsten im Charakterfenster [C].` : `${n}× ${def.name} hergestellt!`);
+    this.msg(p, equipment ? `${n > 1 ? `${n}× ` : ''}${def.name}${rarity} hergestellt! Ausrüsten im Charakterfenster [C].` : `${n}× ${def.name} hergestellt!`);
   },
 };

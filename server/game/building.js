@@ -73,7 +73,9 @@ module.exports = {
       p.forge = s;
       this.msg(p, 'Schmiede gebaut! Stell dich daneben und drücke [F].');
     }
-    if (type === 'furnace') this.msg(p, 'Schmelzofen gebaut! Lege Eisenerz und Kohle hinein [F].');
+    if (type === 'furnace') this.msg(p, 'Schmelzofen gebaut! Lege Erz und Kohle hinein [F].');
+    if (type === 'tanner') this.msg(p, 'Gerbgestell gebaut! Lege Fell hinein [F] – daraus wird Leder.');
+    if (type === 'sleeping_bag') this.msg(p, 'Schlafsack gelegt! Nach dem Tod kannst du hier aufwachen.');
     if (type === 'campfire') this.msg(p, 'Lagerfeuer gebaut! Lege Holz und Rohes (Fleisch, Kartoffeln, Mais) hinein [F].');
   },
 
@@ -178,13 +180,13 @@ module.exports = {
 
     const owner = this.players.get(s.owner);
     if (s.type === 'core') {
-      for (const o of [...this.ownedBy(s.owner)]) this.destroyStructure(o);
-      this.structuresByOwner.delete(s.owner);
+      // Die ganze Basis fällt mit – Schlafsäcke und Lagerfeuer draußen (anywhere) bleiben stehen
+      for (const o of [...this.ownedBy(s.owner)]) if (!C.STRUCTURES[o.type].anywhere) this.destroyStructure(o);
+      if (!this.ownedBy(s.owner).size) this.structuresByOwner.delete(s.owner);
       if (owner) {
         owner.core = null;
         owner.forge = null;
         owner.count = 0;
-        owner.counts = {};
         this.msg(owner, 'Dein Basis-Kern wurde zerstört! Baue einen neuen.');
       }
     } else if (owner) {
@@ -199,7 +201,7 @@ module.exports = {
   updateStructure(s, dt) {
     if (s.type === 'turret') this.updateTurret(s, dt);
     else if (s.type === 'mine') this.updateMine(s, dt);
-    else if (s.type === 'furnace') this.updateFurnace(s, dt);
+    else if (C.STRUCTURES[s.type].modes) this.updateProcessor(s, dt); // Schmelzofen, Gerbgestell
     else if (s.type === 'campfire') this.updateCampfire(s, dt);
   },
 

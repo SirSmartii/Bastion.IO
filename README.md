@@ -64,15 +64,33 @@ und `DB_PATH` darauf zeigen lassen, z. B. `DB_PATH=/var/data/bastion.db`.
 - **Baumenü** (`B`): Gebäude nach Kategorien *Basis*, *Verteidigung* und *Wirtschaft*. Gewählt wird per Klick, platziert mit Linksklick (Ziehen baut Reihen). Der Bau-Button rechts neben der Hotbar wählt das zuletzt gebaute Gebäude
 - **Basis-Kern** platzieren → definiert Bauradius & Gebäude-Limit
 - Letzter Schlag auf eine Ressource gibt einen **Abbau-Bonus** (+10 Holz / +10 Stein / +5 Gold / +4 Eisenerz / +6 Kohle)
-- **Eisen & Kohle**: 🟤 Eisenerz lässt sich erst ab Abbau-Wert 2 abbauen (Steinaxt oder Spitzhacke), ⚫ Kohle mit allem. Im **Schmelzofen** (Baumenü → *Wirtschaft*, max. 2) werden je 2 Eisenerz + 1 Kohle zu einem ⛓️ **Eisenbarren** geschmolzen (alle 4 s, mit Upgrades bis 1,2 s). Der Ofen ist ein Behälter wie die Truhe (`F`), nimmt nur Erz, Kohle und Barren und läuft auch, wenn du offline bist. Er glüht und raucht, solange er brennt
-- **Wofür Eisen & Kohle**: Eisen für Spitzhacke, Eisenschwert, Eisenrüstung, Metallpfeile, Feuerwaffen und die höchsten Gebäude-Stufen (Mauer, Tür, Fenster, Turm, Kern, Schmiede, Mine); Kohle ist Ofen-Brennstoff und Schießpulver für Patronen. Minen fördern ab Stufe 3 auch Kohle, ab Stufe 4 Eisenerz
+- **Material-Leiter**: Werkzeuge, Waffen und Rüstung gibt es aus Holz → Stein → **Kupfer** → **Bronze** → Eisen → **Stahl** → Diamant → Rubin (`MATERIALS` in der Config). Jede Stufe macht stärker (Faktor `mult` gegenüber Stein) und bestimmt, welche Erze ein Werkzeug abbauen kann:
+  - 🟠 **Kupfererz** und ⚪ **Zinnerz** (Felsgebiet, Kupfer auch auf Wiesen) ab Stein-Werkzeug
+  - 🟤 **Eisenerz** ab Bronze-Werkzeug
+  - 💎 **Edelsteinadern** (selten, nur im Felsgebiet) ab Stahl-Werkzeug: Diamanten, mit etwas Glück ♦️ Rubine. Später auch von Bossen
+  - ⚫ Kohle mit allem
+- **Schmelzofen** (Baumenü → *Wirtschaft*, max. 2): ein Behälter (`F`), der auch offline weiterläuft. Im Ofen-Fenster wählst du die **Betriebsart**:
+  - *Erze schmelzen*: je 2 Erz + 1 Kohle → 1 Kupfer-, Zinn- oder Eisenbarren
+  - *Bronze legieren*: 3 Kupfer + 1 Zinn + 1 Kohle → 4 Bronzebarren
+  - *Stahl veredeln* (ab Ofen-Stufe 3): 1 Eisen + 3 Kohle → 1 Stahlbarren
+  Legierungen sind eigene Betriebsarten, damit der Ofen nicht ungefragt alle Barren weiterverarbeitet
+- **Gerbgestell** (Baumenü → *Wirtschaft*, max. 1): macht aus 2 Fell 1 🟫 **Leder** (ohne Brennstoff). Leder braucht man für Lederkleidung, Lederrucksack, Schwerter und Metallrüstung
+- **Rezepte nach Baukasten**: Jeder Gegenstand braucht einige **Material-Einheiten** (Axt/Spitzhacke 3, Schwert 4, Dolch/Speer 2, Helm 12 / Rüstung 25 / Beinschutz 18 / Stiefel 10 Barren) plus Holz bzw. Leder. Eine Einheit sind 4 Kupfer- oder Bronzebarren, 5 Eisen- oder Stahlbarren, 2 Diamanten + 6 Stahl, 2 Rubine + 8 Stahl. In der Schmiede wählst du pro Reiter das Material
+- **Kleidung**: Fell und Leder sind leicht (kein Tempo-Malus), Kupfer und Bronze mittel, Eisen schützt gut, macht aber langsam, Stahl schützt am besten und ist leichter als Eisen
+- **Gold** ist reines Wertmetall (Upgrades, Verbessern, Umschmieden, Munition). Die früheren Gold-Waffen wurden zu Bronze; alte Spielstände werden beim Laden umgestellt (`ITEM_ALIASES`)
+- **Wofür Eisen & Kohle**: Eisen für Eisenwerkzeug & -rüstung, Metallpfeile, Pistole und die höchsten Gebäude-Stufen; Stahl für Schrotflinte, Gewehr und ab Stahl-Ausrüstung fürs Verbessern; Kohle ist Ofen-Brennstoff und Schießpulver. Minen fördern ab Stufe 3 auch Kohle, ab Stufe 4 Eisenerz
+- **Schlafsack** (Baumenü → *Basis*, max. 2, Fell & Holz): dein **Respawnpunkt** – der Basis-Kern ist keiner mehr. Auch außerhalb der Basis legbar (nicht in fremden Basen und Städten), begehbar, zerstörbar. Im Todesbildschirm wählst du *Schlafsack 1/2* oder *Irgendwo*; ein benutzter Schlafsack ist 60 s gesperrt. Ohne Schlafsack wachst du zufällig irgendwo in der Welt auf. Wird der Kern zerstört, bleiben Schlafsäcke und Lagerfeuer draußen stehen
+- **Rucksack** (neuer Ausrüstungsplatz *Rücken*): Fellrucksack +5, Lederrucksack +10 Inventarplätze. Ablegen geht nur, wenn die Rucksack-Plätze leer sind
+- **Fackel** (Handwerk, 2 Stück): in der Hand leuchtet sie nachts weit und verscheucht Tiere wie ein Lagerfeuer (nicht rasend hungrige). Sie brennt 4 Minuten, solange sie in der Hand ist (Restzeit in der Hotbar)
+- **Angel** (Handwerk): mit der Angel in der Hand am Seeufer `F` – nach 3–8 s beißt etwas an (meist Fisch, mal ein großer, mal Schrott oder eine Konserve). Bewegen oder Zuschlagen bricht ab. 🐟 Fisch wird am Lagerfeuer gebraten (`FISHING` in der Config)
+- **Kochen am Lagerfeuer** (Handwerk-Fenster `G`, Abschnitt *Am Lagerfeuer*, neben einem brennenden Feuer): 🍲 Eintopf (Gebratenes Fleisch + Kartoffel + Karotte + Wasser: sehr satt, 60 s doppelte Regeneration), 🧃 Beerensaft, 🥣 Fischsuppe (60 s schnellere Ausdauer-Erholung). Die Feldflasche kommt zurück
 - **Spitzhacken**: bauen Fels, Gold, Eisen und Kohle mit ihrem eigenen Wert ab (Stein 3, Eisen 6), an Bäumen taugen sie wenig
 - **Sichtlinien**: Bäume, Felsen, Kisten, Mauern, Türen und Ruinen verdecken die Sicht. Der Boden dahinter ist abgedunkelt, und fremde Spieler und Gegner dahinter werden gar nicht erst an deinen Client geschickt (auch nicht aufs Radar) – man kann sich also hinter Bäumen oder sogar in Baumkronen verstecken. Ganz aus der Nähe (`SIGHT.near`) spürt man trotzdem alles – außer durch Mauern und Ruinen hindurch. Teammitglieder sieht man immer. Zwischen zwei aneinanderstoßenden Mauern rutschen weder Sicht noch Licht durch die Fuge. Fenster sind durchsichtig, Türme schauen über Mauern hinweg, aber nicht durch Bäume
 - Gebäude sind für alle massiv, auch für dich. **Türen** lassen nur ihren Besitzer (und sein Team) durch, **Fenster** blockieren jeden, lassen aber Pfeile durch
 - Mauern, Türen, Fenster, Stacheln, Türme, Minen im Radius bauen; mit `E` upgraden (5 Stufen: Holz → Stein → Gold → Diamant → Rubin). Beim Platzieren dreht `R` das Gebäude in 90°-Schritten. Der Basis-Kern ist 2×1 Kacheln groß
 - Gebäude können höchstens das Level des Kerns erreichen → Kern-Upgrades sind der Fortschritt
 - **Handwerk** (`G`): Einfache Sachen gehen überall ohne Schmiede – Steinaxt, Steinspitzhacke, Steindolch, Holzspeer, Holzbogen, Fellmütze & -stiefel, Holz- und Steinpfeile und Verbände (aus Fell). In der Config markiert `hand: true` ein Rezept dafür
-- **Schmiede** (max. 1): Mit `F` daneben öffnen und Werkzeug, Waffen, Munition, Kleidung & Vorräte herstellen. Das Schmiede-Level schaltet Rezepte frei
+- **Schmiede** (max. 1): Mit `F` daneben öffnen und Werkzeug, Waffen, Munition, Kleidung & Vorräte herstellen. Das Schmiede-Level schaltet Rezepte frei (Kupfer & Leder ab 1, Bronze & Eisen ab 2, Stahl ab 3, Diamant & Rubin ab 4); pro Reiter wählst du das Material
 - **Charakter** (`C`): Ausrüstungs-Slots Mütze, Shirt, Hose, Schuhe und Waffe sowie alle Werte (Leben, Rüstung, Schaden, Abbau, Tempo, Angriffe/s, Regeneration, Reichweite). Öffnet zusammen mit dem Inventar (`Tab`) nebeneinander
 - **Fähigkeiten durch Übung** (im Charakterfenster): steigen von selbst beim Tun und bleiben auch nach dem Tod erhalten (bis Stufe 20, `PRACTICE` in der Config):
   - 🏃 Laufen (Strecke, Sprinten zählt mehr): +1 % Tempo, −3 % Sprint-Ausdauer pro Stufe
@@ -83,7 +101,7 @@ und `DB_PATH` darauf zeigen lassen, z. B. `DB_PATH=/var/data/bastion.db`.
 - **Ausrüstung als Einzelstücke**: Jedes Waffen- und Kleidungsstück hat eine **Seltenheit** – Gewöhnlich, Gut (grün, 1 Bonus), Selten (blau, 2), Episch (lila, 3), Legendär (orange, 3, später von Bossen) – mit zufälligen **Boni** wie mehr Schaden, Angriffstempo, Reichweite, Lebensraub, Ertrag (nur Werkzeug), doppelte Beute, Leben, Rüstung, Tempo, Regeneration, weniger Sprint-Ausdauer oder langsamerer Hunger (`GEAR` und `MODS` in der Config). Rahmenfarbe, Tooltip und ein Leuchten am Boden zeigen die Seltenheit
   - Selbst hergestellt ist meist gewöhnlich (75 %), manchmal Gut, selten Selten. Fundstücke aus Kisten und von Gegnern sind deutlich besser (bis Episch)
   - **Flüche als Tausch**: Manche Teile tragen einen Fluch (rot, z. B. −8 % Tempo, mehr Hunger, lauter = Gegner bemerken dich früher; `CURSES`). Dafür würfeln ihre guten Boni 1,5-mal so stark
-- **Verbessern** (Schmiede → Reiter *Verbessern*): +1 bis +5, jede Stufe +8 % auf den Hauptwert (Waffen: Schaden, Kleidung: Rüstung & Leben). Kostet Eisen und 🪨 Wetzsteine (Schmiede: 30 Stein + 1 Eisen = 2 Stück, auch in Werkzeugkisten), ab +3 Gold, ab +4 🔮 Dunkle Essenz (von Kolossen, Bären, aus Waffenkisten). Ab +2 kann es schiefgehen:
+- **Verbessern** (Schmiede → Reiter *Verbessern*): +1 bis +5, jede Stufe +8 % auf den Hauptwert (Waffen: Schaden, Kleidung: Rüstung & Leben). Kostet Eisen (ab Stahl-Ausrüstung Stahl) und 🪨 Wetzsteine (Schmiede: 30 Stein + 1 Eisen = 2 Stück, auch in Werkzeugkisten), ab +3 Gold, ab +4 🔮 Dunkle Essenz (von Kolossen, Bären, aus Waffenkisten). Ab +2 kann es schiefgehen:
 
   | Ziel | Erfolg | nichts | Stufe −1 | zerstört |
   |---|---|---|---|---|
@@ -140,7 +158,7 @@ Gegner entdecken nur Spieler, die sie sehen können. Verschwindet man hinter Dec
 | `server/game/players.js` | Verbindung, Login, Spawnen, Bewegung, Erfahrung |
 | `server/game/items.js` | Inventar, Items am Boden, Hotbar, Ausrüstung, Herstellen |
 | `server/game/building.js` | Gebäude bauen, upgraden, abreißen; Türme & Minen |
-| `server/game/storage.js` | Truhen, Schmelzofen, Kern-Lager, Unterhalt & Verfall |
+| `server/game/storage.js` | Truhen, Schmelzofen & Gerbgestell (Betriebsarten), Lagerfeuer, Kern-Lager, Unterhalt & Verfall |
 | `server/game/combat.js` | Schläge, Schüsse, Projektile, Schaden, Beute |
 | `server/game/enemies.js` | Gegner spawnen, Zielwahl, Bewegung, Morgengrauen & Aufräumen |
 | `server/game/practice.js` | Fähigkeiten durch Übung (Laufen, Holzfällen, Schießen …) |
@@ -176,14 +194,14 @@ Gegner entdecken nur Spieler, die sie sehen können. Verschwindet man hinter Dec
 
 ### Grafiken (`public/assets/`)
 
-Alle Objekte sind eigene SVG-Dateien, thematisch sortiert. Jede Datei hat ihr Koordinatensystem (`viewBox`) in den Einheiten des Spiels – ein Gebäude ist 50 × 50 (Mitte 0/0), die Spielfigur hat Radius 24, Item-Symbole sind 40 × 40, Figuren schauen nach rechts (+x). Farbvarianten stehen als Platzhalter in der Datei (`$C` hell, `$D` dunkel, Wolf zusätzlich `$E`/`$F`, Pfeile `$T`/`$U`) und werden beim Laden ersetzt – so gibt es z. B. eine Mauer-Datei für alle fünf Stufen. **Neue Dateien in `assets/manifest.json` eintragen.**
+Alle Objekte sind eigene SVG-Dateien, thematisch sortiert. Jede Datei hat ihr Koordinatensystem (`viewBox`) in den Einheiten des Spiels – ein Gebäude ist 50 × 50 (Mitte 0/0), die Spielfigur hat Radius 24, Item-Symbole sind 40 × 40, Figuren schauen nach rechts (+x). Farbvarianten stehen als Platzhalter in der Datei (`$C` hell, `$D` dunkel, `$L` Glanz bei Kleidung & Rucksack, Wolf zusätzlich `$E`/`$F`, Pfeile `$T`/`$U`) und werden beim Laden ersetzt – so gibt es z. B. eine Mauer-Datei für alle fünf Stufen. **Neue Dateien in `assets/manifest.json` eintragen.**
 
 | Ordner | Inhalt |
 |---|---|
 | `items/materials`, `items/food`, `items/supplies`, `items/ammo` | Inventar-Symbole der stapelbaren Items |
-| `gear/weapons`, `gear/armor/fur`, `gear/armor/iron` | Waffen (auch in der Hand, Griff bei 0/0) und Kleidung |
+| `gear/weapons`, `gear/armor/soft`, `gear/armor/metal`, `gear/back` | Waffen, Werkzeug, Fackel & Angel (auch in der Hand, Griff bei 0/0), Kleidung (Fell/Leder bzw. Metall, Farbe je Material), Rucksack |
 | `structures` | Gebäude; bewegte Teile extra (Geschütz, Rotor, Türblatt, Glut, Kristall) |
 | `creatures/undead`, `creatures/animals` | Untote und Tiere, Teile für Animationen (Arme, Schwanz, Pranken) |
-| `player`, `player/worn` | Spielfigur, Hände, getragene Kleidung |
+| `player`, `player/worn` | Spielfigur, Hände, getragene Kleidung & Rucksack |
 | `world/trees`, `world/rocks`, `world/plants`, `world/loot` | Bäume, Felsen & Erze, Pflanzen, Plünderbares in Städten |
 | `ui` | Symbole im HUD |

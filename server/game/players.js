@@ -158,7 +158,7 @@ module.exports = {
     for (const key of ['WORLD_SIZE', 'TILE', 'VIEW', 'PVP', 'DAY_LENGTH', 'NIGHT_LENGTH', 'PLAYER', 'AMMO', 'SKILLS', 'HOTBAR_SIZE',
       'EQUIPMENT', 'EQUIP_SLOTS', 'FORGE_TABS', 'RESOURCE_MIN_SCALE', 'INVENTORY', 'ITEMS', 'STRUCTURES', 'ENEMIES',
       'BUILD_CATEGORIES', 'MINIMAP_RANGE', 'MAP', 'TEAM', 'CHAT', 'UPKEEP',
-      'RESOURCES', 'SIGHT', 'TICK_RATE', 'PRACTICE', 'SURVIVAL', 'WILDLIFE', 'GEAR', 'MODS', 'CURSES']) cfg[key] = C[key];
+      'RESOURCES', 'SIGHT', 'TICK_RATE', 'PRACTICE', 'SURVIVAL', 'WILDLIFE', 'GEAR', 'MODS', 'CURSES', 'MATERIALS', 'FISHING']) cfg[key] = C[key];
     const w = this.world;
     p.conn.send(JSON.stringify({
       t: 'init', id: p.id, acc: acc ? acc.username : null, cfg,
@@ -211,8 +211,8 @@ module.exports = {
 
   // ---------- Spawnen ----------
 
+  // Zufällig in der Welt (der Kern ist kein Spawnpunkt – dafür gibt es Schlafsäcke)
   placeAtSpawn(p) {
-    if (p.core) return this.placeNextToCore(p, p.core);
     const W = C.WORLD_SIZE;
     for (let tries = 0; tries < 60; tries++) {
       const x = rand(200, W - 200), y = rand(200, W - 200);
@@ -229,8 +229,8 @@ module.exports = {
     p.y = W / 2;
   },
 
-  // Freien Platz neben dem Kern suchen (Gebäude sind auch für den Besitzer massiv)
-  placeNextToCore(p, core) {
+  // Freien Platz neben einem Gebäude suchen (z. B. dem Schlafsack)
+  placeNextTo(p, core) {
     for (let tries = 0; tries < 40; tries++) {
       const a = rand(0, TAU), d = Math.max(core.hw, core.hh) + p.r + 8 + Math.floor(tries / 8) * 25;
       const x = core.x + Math.cos(a) * d, y = core.y + Math.sin(a) * d;
@@ -240,12 +240,29 @@ module.exports = {
     p.y = core.y;
   },
 
-  respawn(p) {
+  // Schlafsäcke des Spielers mit Wartezeit in Sekunden (0 = frei)
+  sleepingBags(p) {
+    const cd = C.STRUCTURES.sleeping_bag.cooldown;
+    return [...this.ownedBy(p.id)].filter((s) => s.type === 'sleeping_bag')
+      .map((s) => ({ s, wait: Math.max(0, Math.ceil((s.usedAt ?? -1e9) + cd - this.now)) }));
+  },
+
+  // Wahl im Todesbildschirm: Schlafsack-ID oder 0 (irgendwo in der Welt)
+  chooseSpawn(p, id) {
+    if (p.dead) p.spawnChoice = id || 'random';
+  },
+
+  // bag: Schlafsack, an dem man aufwacht (sonst zufällig in der Welt)
+  respawn(p, bag = null) {
     p.dead = false;
     p.hp = p.maxHp;
     p.hunger = Math.max(p.hunger, C.SURVIVAL.max * C.SURVIVAL.respawnFill);
     p.thirst = Math.max(p.thirst, C.SURVIVAL.max * C.SURVIVAL.respawnFill);
-    this.placeAtSpawn(p);
+    p.spawnChoice = null;
+    if (bag) {
+      bag.usedAt = this.now;
+      this.placeNextTo(p, bag);
+    } else this.placeAtSpawn(p);
   },
 
   // ---------- Pro Tick ----------
@@ -255,11 +272,18 @@ module.exports = {
     // Abgelaufene Team-Einladungen verwerfen
     for (const [from, at] of p.invites) if (this.now - at > C.TEAM.inviteTime || !this.players.has(from)) p.invites.delete(from);
     if (p.dead) {
-      p.respawnT -= dt;
-      if (p.respawnT <= 0) this.respawn(p);
+      p.respawnT = Math.max(0, p.respawnT - dt);
+      if (p.respawnT > 0) return;
+      // Mit Schlafsäcken wartet man auf die Wahl im Todesbildschirm, ohne geht es zufällig weiter
+      const bags = this.sleepingBags(p);
+      if (!bags.length || p.spawnChoice === 'random') return this.respawn(p);
+      const chosen = bags.find((b) => b.s.id === p.spawnChoice);
+      if (chosen && !chosen.wait) this.respawn(p, chosen.s);
       return;
     }
     p.alive += dt;
+    this.burnTorch(p, dt);
+    this.updateFishing(p);
     this.movePlayer(p, dt);
     if (p.chest && !this.canUseChest(p, this.structures.get(p.chest))) p.chest = 0;
     this.pickupItems(p);
@@ -276,7 +300,7 @@ module.exports = {
     this.updateNeeds(p, dt);
     // Leben regeneriert erst 5 s nach dem letzten Treffer – und nur, wer nicht hungert oder dürstet
     const fed = Math.min(p.hunger, p.thirst) >= C.SURVIVAL.noRegenBelow;
-    if (fed && this.now - p.lastHurt > 5 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + p.stats.regen * dt);
+    if (fed && this.now - p.lastHurt > 5 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + p.stats.regen * this.buffFactor(p, 'regen') * dt);
   },
 
   // Hunger & Durst sinken (beim Sprinten schneller). Leer = jede Sekunde Schaden an der Rüstung vorbei.
@@ -307,8 +331,10 @@ module.exports = {
   // [F] am Seeufer: trinken und alle leeren Feldflaschen füllen
   drink(p) {
     const S = C.SURVIVAL;
-    if (p.dead || this.now - p.drinkT < S.drinkCooldown) return;
-    if (!this.world.lakes.some(([x, y, r]) => Math.hypot(p.x - x, p.y - y) < r + S.drinkRange)) return this.msg(p, 'Hier ist kein Wasser.');
+    if (p.dead) return;
+    if (p.equip.weapon === 'rod') return this.startFishing(p); // mit der Angel in der Hand wird geangelt
+    if (this.now - p.drinkT < S.drinkCooldown) return;
+    if (!this.nearLake(p)) return this.msg(p, 'Hier ist kein Wasser.');
     p.drinkT = this.now;
     const bottles = Inv.count(p.inv, 'bottle');
     if (bottles) { Inv.remove(p.inv, 'bottle', bottles); this.give(p, 'water', bottles, p.x, p.y); }
@@ -316,6 +342,53 @@ module.exports = {
     p.thirst = Math.min(S.max, p.thirst + S.drinkAmount);
     this.events.push([Math.round(p.x), Math.round(p.y), 'drink', S.drinkAmount, p.id]);
     if (bottles) this.msg(p, `💧 ${bottles}× Feldflasche gefüllt.`);
+  },
+
+  // ---------- Fackel & Angel ----------
+
+  // Die Fackel in der Hand brennt ab (torchLeft gilt für die gerade brennende; eine abgelegte brennt nicht weiter)
+  burnTorch(p, dt) {
+    if (p.equip.weapon !== 'torch') return;
+    if (!(p.torchLeft > 0)) p.torchLeft = C.EQUIPMENT.torch.burn;
+    p.torchLeft -= dt;
+    if (p.torchLeft > 0) return;
+    p.torchLeft = 0;
+    p.equip.weapon = null;
+    p.gear.weapon = null;
+    this.computeStats(p);
+    this.msg(p, '🔥 Deine Fackel ist abgebrannt.');
+  },
+
+  nearLake(p, extra = 0) {
+    return this.world.lakes.some(([x, y, r]) => Math.hypot(p.x - x, p.y - y) < r + C.SURVIVAL.drinkRange + extra);
+  },
+
+  // Mit der Angel am Ufer [F]: nach FISHING.wait Sekunden beißt etwas an. Bewegen oder Zuschlagen bricht ab.
+  startFishing(p) {
+    if (p.fishing) return;
+    if (!this.nearLake(p)) return this.msg(p, 'Zum Angeln musst du am Seeufer stehen.');
+    const [a, b] = C.FISHING.wait;
+    p.fishing = { start: this.now, until: this.now + a + Math.random() * (b - a) };
+    this.msg(p, '🎣 Angel ausgeworfen – stillhalten …');
+  },
+
+  updateFishing(p) {
+    const f = p.fishing;
+    if (!f) return;
+    if ((p.keys & 15) || p.attacking || p.equip.weapon !== 'rod') {
+      p.fishing = null;
+      return this.msg(p, 'Angeln abgebrochen.');
+    }
+    if (this.now < f.until) return;
+    p.fishing = null;
+    const catches = C.FISHING.catches, total = catches.reduce((s, c) => s + c.weight, 0);
+    let roll = Math.random() * total, c = catches[0];
+    for (const x of catches) { if ((roll -= x.weight) < 0) { c = x; break; } }
+    const n = Array.isArray(c.n) ? c.n[0] + Math.floor(Math.random() * (c.n[1] - c.n[0] + 1)) : c.n;
+    this.give(p, c.item, n, p.x, p.y);
+    this.addXp(p, C.FISHING.xp);
+    this.events.push([Math.round(p.x), Math.round(p.y), 'g', n, 0, c.item, p.id]);
+    this.msg(p, c.msg || `🎣 ${n}× ${C.ITEMS.names[c.item]} gefangen!`);
   },
 
   // Tastenbits: 1 hoch, 2 runter, 4 links, 8 rechts, 16 sprinten
@@ -334,7 +407,7 @@ module.exports = {
       p.sprintStop = this.now;
       if (p.stamina <= 0) p.exhausted = true;
     } else if (this.now - p.sprintStop > P.staminaDelay) {
-      p.stamina = Math.min(p.stats.stamina, p.stamina + P.staminaRegen * dt);
+      p.stamina = Math.min(p.stats.stamina, p.stamina + P.staminaRegen * this.buffFactor(p, 'staminaRegen') * dt);
     }
     if (p.exhausted && p.stamina >= P.exhaustedUntil) p.exhausted = false;
 
@@ -345,7 +418,7 @@ module.exports = {
       this.trackRunning(p, speed * dt);
     }
     // Gebäude sind massiv; nur Türen des eigenen Teams lassen durch
-    this.collideStatics(p, (s) => !(C.STRUCTURES[s.type].passOwner && this.allied(p, s.owner)));
+    this.collideStatics(p, (s) => !C.STRUCTURES[s.type].walkable && !(C.STRUCTURES[s.type].passOwner && this.allied(p, s.owner)));
     p.x = clamp(p.x, p.r, C.WORLD_SIZE - p.r);
     p.y = clamp(p.y, p.r, C.WORLD_SIZE - p.r);
   },

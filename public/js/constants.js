@@ -12,6 +12,8 @@ export const RES_ICON = {
   berries: '🫐', apple: '🍎', carrot: '🥕', potato: '🥔', corn: '🌽', pumpkin: '🎃', cooked_meat: '🍗', baked_potato: '🥔', roasted_corn: '🌽',
   bottle: '🫙', water: '💧', whetstone: '🪨', essence: '🔮', ward: '🛡️',
   arrow_wood: '🏹', arrow_stone: '🏹', arrow_iron: '🏹', bullet: '🔸', shell: '🔴',
+  copper_ore: '🟠', tin_ore: '⚪', copper: '🟧', tin: '⬜', bronze: '🟨', steel: '🔷', diamond: '💎', ruby: '♦️', leather: '🟫',
+  fish: '🐟', cooked_fish: '🐠', stew: '🍲', berry_juice: '🧃', fish_soup: '🥣',
 };
 
 // Pfeilspitzen [hell, dunkel] nach "look" der Munition (1 = Kugel, kein Pfeil)
@@ -26,17 +28,17 @@ export const BIOME = { grass: 0, forest: 1, rocky: 2, sand: 3, meadow: 4, urban:
 
 // Wie "hoch" Objekte für Sonnenschatten sind. Ressourcen relativ zum Radius, Gebäude in Welteinheiten.
 export const RES_HEIGHT = {
-  tree: 1.5, rock: 0.55, gold: 0.5, iron: 0.5, coal: 0.45,
+  tree: 1.5, rock: 0.55, gold: 0.5, iron: 0.5, coal: 0.45, copper: 0.5, tin: 0.5, gem: 0.45,
   apple_tree: 1.4, berry_bush: 0.6, carrot: 0.25, potato: 0.25, corn: 1.3, pumpkin: 0.5,
   crate: 1, shelf: 1.4, weapon_crate: 0.9, med_cabinet: 1.6, toolbox: 0.7, barrel: 1.4, car: 0.6,
 };
 export const RUIN_HEIGHT = 40;
-export const STRUCT_HEIGHT = { core: 60, wall: 42, door: 30, window: 42, spike: 10, turret: 55, mine: 28, forge: 38, storage: 26, furnace: 44, campfire: 12 };
+export const STRUCT_HEIGHT = { core: 60, wall: 42, door: 30, window: 42, spike: 10, turret: 55, mine: 28, forge: 38, storage: 26, furnace: 44, campfire: 12, tanner: 34, sleeping_bag: 5 };
 
 // Partikel- und Leistenfarbe je Ressource
 export const RESOURCE_COLORS = {
   apple_tree: '#3b8535', berry_bush: '#4f8f3a', carrot: '#f08a24', potato: '#b08850', corn: '#f2d24a', pumpkin: '#e8892b',
-  tree: '#3b8535', rock: '#8b9196', gold: '#f4c63d', iron: '#c0703e', coal: '#3a3a3d',
+  tree: '#3b8535', rock: '#8b9196', gold: '#f4c63d', iron: '#c0703e', coal: '#3a3a3d', copper: '#e08a50', tin: '#dfe3e6', gem: '#62d6e8',
   crate: '#a8743f', shelf: '#9aa3ab', weapon_crate: '#4f5e3a', med_cabinet: '#eef2f0', toolbox: '#c0392b', barrel: '#2f6fa3', car: '#7d5a4a',
 };
 

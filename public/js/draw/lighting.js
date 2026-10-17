@@ -228,7 +228,8 @@ export function drawLighting() {
   darkCtx.fillRect(0, 0, darkCanvas.width, darkCanvas.height);
   darkCtx.globalCompositeOperation = 'destination-out';
 
-  for (const p of players.values()) cutLight(p.dx, p.dy, 260, null);
+  // Spieler leuchten etwas, mit Fackel in der Hand weit
+  for (const p of players.values()) cutLight(p.dx, p.dy, p.look && p.look[0] === 'torch' ? cfg.EQUIPMENT.torch.light : 260, null);
   for (const s of structs.values()) {
     if (s.type === 'core') cutLight(s.x, s.y, 240 + s.level * 30, s);
     else if (s.type === 'turret') cutLight(s.x, s.y, 110, s);

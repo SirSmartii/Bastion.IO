@@ -52,7 +52,9 @@ function structureStats(type, def, level) {
     case 'mine': return `+${fmtCost(level.income)} alle ${def.interval}s`;
     case 'core': return `Radius ${level.radius} · Limit ${level.maxStructures} · Lager ${level.slots}`;
     case 'storage': return `${level.slots} Plätze`;
-    case 'furnace': return `${level.slots} Plätze · 1 Barren alle ${String(level.time).replace('.', ',')} s`;
+    case 'furnace': return `${level.slots} Plätze · Barren alle ${String(level.time).replace('.', ',')} s${def.levels.indexOf(level) + 1 >= 3 ? ' · Stahl' : ''}`;
+    case 'tanner': return `${level.slots} Plätze · 1 Leder alle ${level.time} s`;
+    case 'sleeping_bag': return `Aufwachen nach dem Tod · danach ${def.cooldown} s gesperrt`;
     case 'campfire': return `${level.slots} Plätze · brät alle ${level.time} s · verscheucht Tiere`;
     case 'forge': {
       const forgeLevel = def.levels.indexOf(level) + 1;
@@ -66,7 +68,8 @@ function structureStats(type, def, level) {
 const INTERACT_HINTS = {
   forge: '[F] Schmiede öffnen (in der Nähe)',
   storage: '[F] Truhe öffnen (in der Nähe)',
-  furnace: '[F] Ofen öffnen: Eisenerz + Kohle → Eisenbarren',
+  furnace: '[F] Ofen öffnen: Erze + Kohle → Barren, Bronze, Stahl',
+  tanner: '[F] Gerbgestell: Fell hinein → Leder',
   core: '[F] Kern-Lager: Unterhalt einlagern',
   campfire: '[F] Lagerfeuer: Holz & Rohes hinein',
 };

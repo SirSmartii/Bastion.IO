@@ -1,6 +1,101 @@
 'use strict';
 // Zentrale Spielwerte. Alles Balancing passiert hier.
 
+// ---------- Material-Leiter für Waffen, Werkzeuge und Rüstung ----------
+//
+// tier: Stufe (bestimmt auch, welche Erze ein Werkzeug abbauen kann, RESOURCES[*].tool),
+// mult: Werte-Faktor gegenüber Stein, gather/mine: Abbau-Wert von Äxten bzw. Spitzhacken,
+// unit: Kosten einer Material-Einheit (Gegenstände brauchen 2–4 Einheiten), forge: nötiges Schmiede-Level.
+const MATERIALS = {
+  wood: { name: 'Holz', tier: 0, mult: 0.67, gather: 1, mine: 0, color: ['#a8743f', '#6b4524'] },
+  stone: { name: 'Stein', tier: 1, mult: 1, gather: 2, mine: 3, color: ['#9aa1a8', '#5c6268'] },
+  copper: { name: 'Kupfer', tier: 2, mult: 1.25, gather: 2, mine: 4, color: ['#e08a50', '#8a4520'], unit: { copper: 4 }, forge: 1 },
+  bronze: { name: 'Bronze', tier: 3, mult: 1.5, gather: 3, mine: 5, color: ['#d4a24a', '#7a5a20'], unit: { bronze: 4 }, forge: 2 },
+  iron: { name: 'Eisen', tier: 4, mult: 1.8, gather: 3, mine: 6, color: ['#c9d1d9', '#5d6670'], unit: { iron: 5 }, forge: 2 },
+  steel: { name: 'Stahl', tier: 5, mult: 2.2, gather: 4, mine: 8, color: ['#8fa8bf', '#34404c'], unit: { steel: 5 }, forge: 3 },
+  diamond: { name: 'Diamant', tier: 6, mult: 2.7, gather: 5, mine: 10, color: ['#62d6e8', '#2b93a6'], unit: { diamond: 2, steel: 6, gold: 20 }, forge: 4 },
+  ruby: { name: 'Rubin', tier: 7, mult: 3.2, gather: 5, mine: 11, color: ['#e0577a', '#8f2a47'], unit: { ruby: 2, steel: 8, gold: 40 }, forge: 4 },
+};
+
+// Waffen & Werkzeuge: Werte auf Stein-Stufe (× mult), Material-Einheiten und Zusatzkosten.
+// up(m): Stufen über Stein (Holz 0) – Tempo und Reichweite wachsen etwas mit
+const up = (m) => Math.max(0, m.tier - 1);
+const WEAPON_TYPES = {
+  axe: {
+    noun: 'axt', tab: 'axes', units: 3, extra: { wood: 30 }, mats: ['wood', 'stone', 'copper', 'bronze', 'iron', 'steel', 'diamond', 'ruby'],
+    stats: (m) => ({ damage: Math.round(18 * m.mult), gather: m.gather, tool: m.tier }),
+  },
+  pick: {
+    noun: 'spitzhacke', tab: 'axes', units: 3, extra: { wood: 30 }, mats: ['stone', 'copper', 'bronze', 'iron', 'steel', 'diamond'],
+    stats: (m) => ({ damage: Math.round(14 * m.mult), gather: 1, mine: m.mine, tool: m.tier }),
+  },
+  sword: {
+    noun: 'schwert', tab: 'melee', units: 4, extra: { wood: 15, leather: 1 }, mats: ['stone', 'copper', 'bronze', 'iron', 'steel', 'diamond', 'ruby'],
+    stats: (m) => ({ damage: Math.round(24 * m.mult), gather: 1, attackSpeed: +(2.2 + 0.03 * up(m)).toFixed(2), reach: Math.round(85 + 1.5 * up(m)) }),
+  },
+  dagger: {
+    noun: 'dolch', tab: 'melee', units: 2, extra: { wood: 10 }, mats: ['stone', 'copper', 'bronze', 'iron', 'steel', 'diamond'],
+    stats: (m) => ({ damage: Math.round(10 * m.mult), gather: 1, attackSpeed: +(4.5 + 0.06 * up(m)).toFixed(2), reach: Math.round(58 + 0.5 * up(m)) }),
+  },
+  spear: {
+    noun: 'speer', tab: 'melee', units: 2, extra: { wood: 60 }, mats: ['wood', 'stone', 'copper', 'bronze', 'iron', 'steel'],
+    stats: (m) => ({ damage: Math.round(22 * m.mult), gather: 1, attackSpeed: +(1.6 + 0.03 * up(m)).toFixed(2), reach: 125 + 3 * up(m) }),
+  },
+};
+// Holz und Stein: einfache Rezepte (auch unterwegs), ohne Material-Einheiten
+const BASIC_RECIPES = {
+  axe_wood: { forge: 1, hand: true, cost: { wood: 30 } },
+  spear_wood: { forge: 1, hand: true, cost: { wood: 70, bone: 4 } },
+  axe_stone: { forge: 1, hand: true, cost: { wood: 80, stone: 50 } },
+  pick_stone: { forge: 1, hand: true, cost: { wood: 70, stone: 60 } },
+  sword_stone: { forge: 1, cost: { wood: 40, stone: 90 } },
+  dagger_stone: { forge: 1, hand: true, cost: { wood: 20, stone: 40 } },
+  spear_stone: { forge: 1, hand: true, cost: { wood: 60, stone: 30 } },
+};
+
+// Metall-Rüstung: Werte auf Eisen-Stufe (× mult / 1.8), Barren und Leder pro Teil.
+// Kupfer, Bronze und Stahl sind leichter als Eisen (weniger Tempo-Malus).
+const ARMOR_PARTS = {
+  hat: { slot: 'head', noun: 'helm', bars: 12, leather: 1, stats: { armor: 8, maxHp: 10 } },
+  shirt: { slot: 'chest', noun: 'rüstung', bars: 25, leather: 3, stats: { armor: 16, maxHp: 40 }, speed: { iron: -15, other: -10 } },
+  pants: { slot: 'legs', noun: 'beinschutz', bars: 18, leather: 2, stats: { armor: 11, maxHp: 20 }, speed: { iron: -5, other: -3 } },
+  boots: { slot: 'feet', noun: 'stiefel', bars: 10, leather: 1, stats: { armor: 5, stamina: 15 }, speed: { iron: 10, other: 12 } },
+};
+const ARMOR_MATS = ['copper', 'bronze', 'iron', 'steel'];
+
+function addCosts(...costs) {
+  const out = {};
+  for (const c of costs) for (const [k, v] of Object.entries(c)) out[k] = (out[k] || 0) + v;
+  return out;
+}
+
+function buildEquipment(extra) {
+  const eq = {};
+  for (const [type, T] of Object.entries(WEAPON_TYPES)) {
+    for (const mat of T.mats) {
+      const m = MATERIALS[mat], id = `${type}_${mat}`;
+      const unitCost = m.unit ? Object.fromEntries(Object.entries(m.unit).map(([k, v]) => [k, v * T.units])) : null;
+      eq[id] = {
+        name: m.name + T.noun, slot: 'weapon', kind: type, tab: T.tab, mat, tier: m.tier, color: m.color, stats: T.stats(m),
+        recipe: BASIC_RECIPES[id] || (unitCost && { forge: m.forge, cost: addCosts(unitCost, T.extra) }),
+      };
+    }
+  }
+  for (const mat of ARMOR_MATS) {
+    const m = MATERIALS[mat], k = m.mult / MATERIALS.iron.mult;
+    for (const [part, A] of Object.entries(ARMOR_PARTS)) {
+      const stats = {};
+      for (const [s, v] of Object.entries(A.stats)) stats[s] = s === 'stamina' ? v : Math.round(v * k);
+      if (A.speed) stats.speed = mat === 'iron' ? A.speed.iron : A.speed.other;
+      eq[`${mat}_${part}`] = {
+        name: m.name + A.noun, slot: A.slot, tab: 'armor', mat, tier: m.tier, style: 'metal', color: m.color, stats,
+        recipe: { forge: m.forge, cost: { [Object.keys(m.unit)[0]]: A.bars, leather: A.leather } },
+      };
+    }
+  }
+  return { ...eq, ...extra };
+}
+
 module.exports = {
   PORT: process.env.PORT || 3000,
   TICK_RATE: 60, // Simulationsschritte pro Sekunde
@@ -12,7 +107,7 @@ module.exports = {
   PVP: false, // true = Spieler können sich gegenseitig & fremde Basen angreifen
 
   DAY_LENGTH: +process.env.DAY_LENGTH || 150, // Sekunden (zum Testen: DAY_LENGTH=10 node server.js)
-  NIGHT_LENGTH: 90,
+  NIGHT_LENGTH: 45,
 
   PLAYER: {
     radius: 24,
@@ -39,11 +134,16 @@ module.exports = {
 
   INVENTORY: {
     slots: 20,
-    stack: { wood: 250, stone: 250, gold: 150, bone: 100, scrap: 50, fur: 50, meat: 30, iron_ore: 100, coal: 100, iron: 100, can: 20, bandage: 10, berries: 40, apple: 20, carrot: 20, potato: 20, corn: 20, pumpkin: 10, cooked_meat: 20, baked_potato: 20, roasted_corn: 20, bottle: 5, water: 5, whetstone: 20, essence: 10, ward: 5, arrow_wood: 100, arrow_stone: 100, arrow_iron: 100, bullet: 120, shell: 60 }, // maximale Stapelgröße pro Slot
+    stack: { wood: 250, stone: 250, gold: 150, bone: 100, scrap: 50, fur: 50, meat: 30, iron_ore: 100, coal: 100, iron: 100, can: 20, bandage: 10, berries: 40, apple: 20, carrot: 20, potato: 20, corn: 20, pumpkin: 10, cooked_meat: 20, baked_potato: 20, roasted_corn: 20, bottle: 5, water: 5, whetstone: 20, essence: 10, ward: 5, arrow_wood: 100, arrow_stone: 100, arrow_iron: 100, bullet: 120, shell: 60,
+      copper_ore: 100, tin_ore: 100, copper: 100, tin: 100, bronze: 100, steel: 100, diamond: 20, ruby: 20, leather: 50,
+      fish: 20, cooked_fish: 20, stew: 10, berry_juice: 10, fish_soup: 10 }, // maximale Stapelgröße pro Slot
   },
 
   ITEMS: {
-    names: { wood: 'Holz', stone: 'Stein', gold: 'Gold', bone: 'Knochen', scrap: 'Schrott', fur: 'Fell', meat: 'Fleisch', iron_ore: 'Eisenerz', coal: 'Kohle', iron: 'Eisenbarren', can: 'Konserve', bandage: 'Verband', berries: 'Beeren', apple: 'Apfel', carrot: 'Karotte', potato: 'Kartoffel', corn: 'Maiskolben', pumpkin: 'Kürbis', cooked_meat: 'Gebratenes Fleisch', baked_potato: 'Ofenkartoffel', roasted_corn: 'Gerösteter Mais', bottle: 'Leere Feldflasche', water: 'Feldflasche (Wasser)', whetstone: 'Wetzstein', essence: 'Dunkle Essenz', ward: 'Schutzsiegel', arrow_wood: 'Holzpfeil', arrow_stone: 'Steinpfeil', arrow_iron: 'Metallpfeil', bullet: 'Patrone', shell: 'Schrotpatrone' },
+    names: { wood: 'Holz', stone: 'Stein', gold: 'Gold', bone: 'Knochen', scrap: 'Schrott', fur: 'Fell', meat: 'Fleisch', iron_ore: 'Eisenerz', coal: 'Kohle', iron: 'Eisenbarren', can: 'Konserve', bandage: 'Verband', berries: 'Beeren', apple: 'Apfel', carrot: 'Karotte', potato: 'Kartoffel', corn: 'Maiskolben', pumpkin: 'Kürbis', cooked_meat: 'Gebratenes Fleisch', baked_potato: 'Ofenkartoffel', roasted_corn: 'Gerösteter Mais', bottle: 'Leere Feldflasche', water: 'Feldflasche (Wasser)', whetstone: 'Wetzstein', essence: 'Dunkle Essenz', ward: 'Schutzsiegel', arrow_wood: 'Holzpfeil', arrow_stone: 'Steinpfeil', arrow_iron: 'Metallpfeil', bullet: 'Patrone', shell: 'Schrotpatrone',
+      copper_ore: 'Kupfererz', tin_ore: 'Zinnerz', copper: 'Kupferbarren', tin: 'Zinnbarren', bronze: 'Bronzebarren', steel: 'Stahlbarren',
+      diamond: 'Diamant', ruby: 'Rubin', leather: 'Leder', fish: 'Fisch', cooked_fish: 'Gebratener Fisch', stew: 'Eintopf',
+      berry_juice: 'Beerensaft', fish_soup: 'Fischsuppe' },
     // Verbrauchbar ([H] oder Rechtsklick): food = Sättigung, water = Durst, hp = Leben (negativ schadet),
     // returns = was danach im Inventar bleibt. Rohes wird am Lagerfeuer gar (STRUCTURES.campfire.cook).
     food: {
@@ -60,10 +160,18 @@ module.exports = {
       can: { food: 30, water: 5, hp: 5 },
       water: { water: 40, returns: 'bottle' },
       bandage: { hp: 45 },
+      fish: { food: 10, hp: -2 }, // roh – besser braten
+      cooked_fish: { food: 35, water: 5, hp: 8 },
+      // buff: Wirkung auf Zeit (t Sekunden) – regen: Faktor auf die Regeneration, staminaRegen: Faktor auf die Ausdauer-Erholung
+      stew: { food: 80, water: 30, hp: 15, buff: { regen: 2, t: 60 } },
+      berry_juice: { water: 35, food: 10, returns: 'bottle' },
+      fish_soup: { food: 60, water: 30, hp: 10, buff: { staminaRegen: 1.15, t: 60 } },
     },
     eatCooldown: 1,
     // Stapelbare Items aus der Schmiede: amount Stück pro Herstellung.
     // hand: auch unterwegs ohne Schmiede herstellbar (Handwerk [G]) – gilt genauso für EQUIPMENT-Rezepte
+    // campfire: nur neben einem brennenden Lagerfeuer (eigenes oder vom Team), steht im Handwerk-Fenster.
+    //   returns: was dabei zurückkommt (z. B. die leere Feldflasche)
     recipes: {
       arrow_wood: { tab: 'ranged', amount: 10, forge: 1, hand: true, cost: { wood: 12 } },
       arrow_stone: { tab: 'ranged', amount: 10, forge: 1, hand: true, cost: { wood: 10, stone: 8 } },
@@ -74,6 +182,10 @@ module.exports = {
       // Kohle ist das Schießpulver, Eisen die Hülse
       bullet: { tab: 'guns', amount: 12, forge: 2, cost: { iron: 1, coal: 3 } },
       shell: { tab: 'guns', amount: 8, forge: 3, cost: { iron: 1, coal: 4, gold: 2 } },
+      // Kochen mit mehreren Zutaten am Lagerfeuer
+      stew: { tab: 'cooking', amount: 1, campfire: true, cost: { cooked_meat: 1, potato: 1, carrot: 1, water: 1 }, returns: { bottle: 1 } },
+      berry_juice: { tab: 'cooking', amount: 1, campfire: true, cost: { berries: 5, water: 1 } },
+      fish_soup: { tab: 'cooking', amount: 1, campfire: true, cost: { cooked_fish: 1, corn: 1, water: 1 }, returns: { bottle: 1 } },
     },
     pickupRadius: 40,
     despawn: 180, // Sekunden, bis Items am Boden verschwinden
@@ -124,7 +236,8 @@ module.exports = {
   // amount: Vorrat [min, max] – leer abgebaut zerfällt die Ressource und wächst nach respawn Sekunden woanders nach.
   // bonus: Extra-Beute für den Spieler, der den letzten Schlag macht
   // biomes: relative Häufigkeit je Biom (grass, forest, rocky, sand, meadow, urban)
-  // hard: Gestein – Spitzhacken bauen es mit ihrem mine-Wert ab. tool: nötiger Abbau-Wert (sonst kein Ertrag)
+  // hard: Gestein – Spitzhacken bauen es mit ihrem mine-Wert ab. tool: nötige Material-Stufe des Werkzeugs
+  //   (MATERIALS[*].tier: 1 Stein, 2 Kupfer, 3 Bronze, 4 Eisen, 5 Stahl – sonst kein Ertrag)
   // solid: Anteil des Radius, an dem Spieler abprallen; enemySolid: dasselbe für Gegner (Standard: solid).
   //   Bei Bäumen ist das für Gegner fast die ganze Krone – sie kommen nicht durch dichten Wald, Spieler schon.
   RESOURCES: {
@@ -140,9 +253,20 @@ module.exports = {
       count: 190, minR: 28, maxR: 38, solid: 0.9, sight: 0.9, hard: true, gives: 'gold', amount: [30, 60], respawn: 150, bonus: { gold: 5 },
       biomes: { grass: 0.4, forest: 0.3, rocky: 5, sand: 0.2, meadow: 0.3, urban: 0 },
     },
-    // Eisenerz: nur mit Werkzeug ab Abbau 2 (Steinaxt, Spitzhacke …), im Schmelzofen zu Eisenbarren
+    // Kupfer- und Zinnerz: ab Stein-Werkzeug, im Schmelzofen zu Barren; 3 Kupfer + 1 Zinn ergeben Bronze
+    copper: {
+      count: 200, minR: 30, maxR: 42, solid: 0.9, sight: 0.9, hard: true, tool: 1, gives: 'copper_ore', amount: [40, 70], respawn: 150,
+      bonus: { copper_ore: 5 },
+      biomes: { grass: 1, forest: 0.4, rocky: 4, sand: 0.6, meadow: 1.2, urban: 0 },
+    },
+    tin: {
+      count: 110, minR: 28, maxR: 38, solid: 0.9, sight: 0.9, hard: true, tool: 1, gives: 'tin_ore', amount: [30, 55], respawn: 180,
+      bonus: { tin_ore: 4 },
+      biomes: { grass: 0.1, forest: 0, rocky: 5, sand: 0.3, meadow: 0, urban: 0 },
+    },
+    // Eisenerz: erst ab Bronze-Werkzeug, im Schmelzofen zu Eisenbarren
     iron: {
-      count: 170, minR: 30, maxR: 42, solid: 0.9, sight: 0.9, hard: true, tool: 2, gives: 'iron_ore', amount: [40, 70], respawn: 180,
+      count: 170, minR: 30, maxR: 42, solid: 0.9, sight: 0.9, hard: true, tool: 3, gives: 'iron_ore', amount: [40, 70], respawn: 180,
       bonus: { iron_ore: 4 },
       biomes: { grass: 0.8, forest: 0.5, rocky: 5, sand: 1, meadow: 0.4, urban: 0 },
     },
@@ -151,6 +275,12 @@ module.exports = {
       count: 220, minR: 30, maxR: 44, solid: 0.9, sight: 0.9, hard: true, gives: 'coal', amount: [50, 90], respawn: 150,
       bonus: { coal: 6 },
       biomes: { grass: 0.8, forest: 2, rocky: 3, sand: 0.2, meadow: 0.6, urban: 0 },
+    },
+    // Edelsteinader: selten, nur im Felsgebiet, erst ab Stahl-Werkzeug. Gibt Diamanten, mit gem.chance einen Rubin
+    gem: {
+      count: 22, minR: 26, maxR: 32, solid: 0.9, sight: 0.9, hard: true, tool: 5, gives: 'diamond', amount: [4, 8], respawn: 600,
+      fruit: { item: 'ruby', chance: 0.12 },
+      biomes: { grass: 0, forest: 0, rocky: 1, sand: 0, meadow: 0, urban: 0 },
     },
     // Pflanzen: pick = Ernten ohne Werkzeug, 1 Stück pro Schlag (egal womit). Abgeerntet wachsen sie woanders nach.
     // Apfelbäume sind Bäume (Holz), die bei jedem Schlag mit fruit.chance einen Apfel fallen lassen.
@@ -198,7 +328,7 @@ module.exports = {
         { item: 'meat', chance: 0.3, min: 1, max: 2 },
         { item: 'fur', chance: 0.25, min: 1, max: 3 },
         { item: 'bow_wood', chance: 0.05, min: 1, max: 1 },
-        { item: 'dagger_gold', chance: 0.04, min: 1, max: 1 },
+        { item: 'dagger_bronze', chance: 0.04, min: 1, max: 1 },
         { item: 'fur_boots', chance: 0.05, min: 1, max: 1 },
         { item: 'iron_hat', chance: 0.02, min: 1, max: 1 },
         { item: 'can', chance: 0.25, min: 1, max: 2 },
@@ -283,160 +413,117 @@ module.exports = {
   RESOURCE_MIN_SCALE: 0.55, // so klein wird eine fast leere Ressource
 
   // Ausrüstung: jedes Teil ist ein eigenes Item (Stapelgröße 1) und passt in genau einen Slot.
-  // stats werden auf die Grundwerte addiert; eine Waffe ersetzt damage/gather/attackSpeed/reach der Faust.
-  // kind: axe | pick | sword | dagger | spear | bow | gun. Spitzhacken (pick) bauen Gestein (RESOURCES[*].hard)
-  //   mit ihrem mine-Wert ab, alles andere mit gather. color: eigene Farbe [hell, dunkel] statt der Stufenfarbe.
+  // stats werden auf die Grundwerte addiert; eine Waffe ersetzt damage/gather/attackSpeed/reach/tool der Faust.
+  // kind: axe | pick | sword | dagger | spear | bow | gun | torch | rod | backpack. Spitzhacken (pick) bauen
+  //   Gestein (RESOURCES[*].hard) mit ihrem mine-Wert ab, alles andere mit gather. tool: Material-Stufe für
+  //   Erze mit RESOURCES[*].tool (nur Äxte & Spitzhacken). color: [hell, dunkel] für die Grafik.
   // Fernwaffen: ammo = Munitionsgruppe (siehe AMMO), range = Schussweite,
   //   projectile: speed, pellets (Kugeln pro Schuss), spread (Streuung in rad).
   //   noise: Schüsse locken Gegner in diesem Umkreis an.
-  // tab: Reiter in der Schmiede (siehe FORGE_TABS)
-  // recipe: in der Schmiede herstellbar ab Schmiede-Level forge. tier = Farbstufe (0 Holz/Fell … 4 Rubin)
+  // tab: Reiter in der Schmiede (siehe FORGE_TABS), mat: Material (Auswahl in der Schmiede)
+  // recipe: in der Schmiede herstellbar ab Schmiede-Level forge (hand: auch unterwegs, amount: Stück pro Herstellung)
+  // noRoll: bekommt keine Seltenheit/Boni (Verbrauchsteile wie Fackeln)
+  // Waffen, Werkzeuge und Metall-Rüstung entstehen aus MATERIALS × Typ-Vorlage (buildEquipment oben in der Datei).
   EQUIP_SLOTS: [
     { id: 'head', name: 'Mütze' },
     { id: 'chest', name: 'Shirt' },
     { id: 'legs', name: 'Hose' },
     { id: 'feet', name: 'Schuhe' },
+    { id: 'back', name: 'Rücken' },
     { id: 'weapon', name: 'Waffe' },
   ],
-  EQUIPMENT: {
-    axe_wood: { name: 'Holzaxt', slot: 'weapon', kind: 'axe', tab: 'axes', tier: 0, stats: { damage: 12, gather: 1 } },
-    axe_stone: {
-      name: 'Steinaxt', slot: 'weapon', kind: 'axe', tab: 'axes', tier: 1, stats: { damage: 18, gather: 2 },
-      recipe: { forge: 1, hand: true, cost: { wood: 80, stone: 50 } },
-    },
-    axe_gold: {
-      name: 'Goldaxt', slot: 'weapon', kind: 'axe', tab: 'axes', tier: 2, stats: { damage: 26, gather: 3 },
-      recipe: { forge: 2, cost: { wood: 150, stone: 150, gold: 40, bone: 10 } },
-    },
-    axe_diamond: {
-      name: 'Diamantaxt', slot: 'weapon', kind: 'axe', tab: 'axes', tier: 3, stats: { damage: 36, gather: 4 },
-      recipe: { forge: 3, cost: { stone: 400, gold: 150, bone: 25, scrap: 5, fur: 5 } },
-    },
-    axe_ruby: {
-      name: 'Rubinaxt', slot: 'weapon', kind: 'axe', tab: 'axes', tier: 4, stats: { damage: 50, gather: 5 },
-      recipe: { forge: 4, cost: { stone: 700, gold: 400, bone: 50, scrap: 15, fur: 15 } },
-    },
-
-    // Spitzhacken: schwach an Bäumen, stark an Fels, Gold, Eisen und Kohle
-    pick_stone: {
-      name: 'Steinspitzhacke', slot: 'weapon', kind: 'pick', tab: 'axes', tier: 1, stats: { damage: 14, gather: 1, mine: 3 },
-      recipe: { forge: 1, hand: true, cost: { wood: 70, stone: 60 } },
-    },
-    pick_iron: {
-      name: 'Eisenspitzhacke', slot: 'weapon', kind: 'pick', tab: 'axes', tier: 1, color: ['#c9d1d9', '#5d6670'],
-      stats: { damage: 20, gather: 1, mine: 6 },
-      recipe: { forge: 2, cost: { wood: 80, iron: 20 } },
-    },
-
-    // Schwerter: viel Schaden, schlecht zum Abbauen
-    sword_stone: {
-      name: 'Steinschwert', slot: 'weapon', kind: 'sword', tab: 'melee', tier: 1,
-      stats: { damage: 24, gather: 1, attackSpeed: 2.2, reach: 85 },
-      recipe: { forge: 1, cost: { wood: 40, stone: 90 } },
-    },
-    sword_gold: {
-      name: 'Goldschwert', slot: 'weapon', kind: 'sword', tab: 'melee', tier: 2,
-      stats: { damage: 36, gather: 1, attackSpeed: 2.3, reach: 88 },
-      recipe: { forge: 2, cost: { stone: 120, gold: 60, bone: 10 } },
-    },
-    sword_iron: {
-      name: 'Eisenschwert', slot: 'weapon', kind: 'sword', tab: 'melee', tier: 2, color: ['#c9d1d9', '#5d6670'],
-      stats: { damage: 42, gather: 1, attackSpeed: 2.3, reach: 90 },
-      recipe: { forge: 2, cost: { wood: 30, iron: 25, fur: 2 } },
-    },
-    sword_diamond: {
-      name: 'Diamantschwert', slot: 'weapon', kind: 'sword', tab: 'melee', tier: 3,
-      stats: { damage: 52, gather: 1, attackSpeed: 2.4, reach: 92 },
-      recipe: { forge: 3, cost: { stone: 250, gold: 150, scrap: 8, bone: 20 } },
-    },
-    // Dolche: sehr schnell, kurze Reichweite
-    dagger_stone: {
-      name: 'Steindolch', slot: 'weapon', kind: 'dagger', tab: 'melee', tier: 1,
-      stats: { damage: 10, gather: 1, attackSpeed: 4.5, reach: 58 },
-      recipe: { forge: 1, hand: true, cost: { wood: 20, stone: 40 } },
-    },
-    dagger_gold: {
-      name: 'Golddolch', slot: 'weapon', kind: 'dagger', tab: 'melee', tier: 2,
-      stats: { damage: 16, gather: 1, attackSpeed: 4.8, reach: 60 },
-      recipe: { forge: 2, cost: { stone: 60, gold: 40, bone: 6 } },
-    },
-    // Speere: große Reichweite
-    spear_wood: {
-      name: 'Holzspeer', slot: 'weapon', kind: 'spear', tab: 'melee', tier: 0,
-      stats: { damage: 15, gather: 1, attackSpeed: 1.6, reach: 125 },
-      recipe: { forge: 1, hand: true, cost: { wood: 70, bone: 4 } },
-    },
-    spear_gold: {
-      name: 'Goldspeer', slot: 'weapon', kind: 'spear', tab: 'melee', tier: 2,
-      stats: { damage: 30, gather: 1, attackSpeed: 1.7, reach: 135 },
-      recipe: { forge: 2, cost: { wood: 100, gold: 50, bone: 10 } },
-    },
+  MATERIALS,
+  EQUIPMENT: buildEquipment({
     // Bögen: Fernkampf, verbrauchen Pfeile, können nichts abbauen
     bow_wood: {
-      name: 'Holzbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', tier: 0,
+      name: 'Holzbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', color: MATERIALS.wood.color,
       ammo: 'arrow', projectile: { speed: 950 },
       stats: { damage: 14, gather: 0, attackSpeed: 1.3, range: 520 },
       recipe: { forge: 1, hand: true, cost: { wood: 60, fur: 3 } },
     },
     bow_composite: {
-      name: 'Kompositbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', tier: 3,
+      name: 'Kompositbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', color: ['#62d6e8', '#2b93a6'],
       ammo: 'arrow', projectile: { speed: 950 },
       stats: { damage: 28, gather: 0, attackSpeed: 1.7, range: 680 },
-      recipe: { forge: 3, cost: { wood: 120, bone: 20, scrap: 6, fur: 6 } },
+      recipe: { forge: 3, cost: { wood: 120, bone: 20, scrap: 6, leather: 4 } },
     },
     // Feuerwaffen: stark, brauchen Munition und sind laut
     pistol: {
-      name: 'Pistole', slot: 'weapon', kind: 'gun', model: 'pistol', tab: 'guns', tier: 1,
+      name: 'Pistole', slot: 'weapon', kind: 'gun', model: 'pistol', tab: 'guns',
       ammo: 'bullet', projectile: { speed: 1500, spread: 0.05 }, noise: 600,
       stats: { damage: 24, gather: 0, attackSpeed: 2.4, range: 620 },
       recipe: { forge: 2, cost: { iron: 15, scrap: 3, wood: 20 } },
     },
     shotgun: {
-      name: 'Schrotflinte', slot: 'weapon', kind: 'gun', model: 'shotgun', tab: 'guns', tier: 2,
+      name: 'Schrotflinte', slot: 'weapon', kind: 'gun', model: 'shotgun', tab: 'guns',
       ammo: 'shell', projectile: { speed: 1300, pellets: 7, spread: 0.3 }, noise: 750,
       stats: { damage: 13, gather: 0, attackSpeed: 1.0, range: 360 },
-      recipe: { forge: 3, cost: { iron: 30, scrap: 6, wood: 40 } },
+      recipe: { forge: 3, cost: { steel: 20, scrap: 6, wood: 40 } },
     },
     rifle: {
-      name: 'Gewehr', slot: 'weapon', kind: 'gun', model: 'rifle', tab: 'guns', tier: 3,
+      name: 'Gewehr', slot: 'weapon', kind: 'gun', model: 'rifle', tab: 'guns',
       ammo: 'bullet', projectile: { speed: 1900, spread: 0.01 }, noise: 900,
       stats: { damage: 62, gather: 0, attackSpeed: 0.85, range: 1000 },
-      recipe: { forge: 4, cost: { iron: 50, scrap: 12, wood: 60 } },
+      recipe: { forge: 4, cost: { steel: 35, scrap: 12, wood: 60 } },
     },
-
+    // Fackel: schwache Waffe, leuchtet nachts weit (light) und verscheucht Tiere wie ein Lagerfeuer.
+    // Brennt burn Sekunden, solange sie in der Hand ist, dann ist sie verbraucht.
+    torch: {
+      name: 'Fackel', slot: 'weapon', kind: 'torch', tab: 'supplies', noRoll: true, burn: 240, light: 430,
+      stats: { damage: 5, gather: 1, attackSpeed: 2 },
+      recipe: { forge: 1, hand: true, amount: 2, cost: { wood: 4, fur: 1, coal: 1 } },
+    },
+    // Angel: am Seeufer [F] – nach FISHING.wait Sekunden beißt etwas an
+    rod: {
+      name: 'Angel', slot: 'weapon', kind: 'rod', tab: 'supplies', noRoll: true,
+      stats: { damage: 3, gather: 0 },
+      recipe: { forge: 1, hand: true, cost: { wood: 30, fur: 2, bone: 1 } },
+    },
+    // Rucksäcke: slots zusätzliche Inventarplätze (ablegen nur, wenn sie leer sind)
+    backpack_fur: {
+      name: 'Fellrucksack', slot: 'back', kind: 'backpack', tab: 'armor', mat: 'fur', noRoll: true, slots: 5, color: ['#9a7650', '#5a4128'],
+      stats: {}, recipe: { forge: 1, hand: true, cost: { fur: 12, bone: 4 } },
+    },
+    backpack_leather: {
+      name: 'Lederrucksack', slot: 'back', kind: 'backpack', tab: 'armor', mat: 'leather', noRoll: true, slots: 10, color: ['#8a5a32', '#4a2e16'],
+      stats: {}, recipe: { forge: 2, cost: { leather: 10, iron: 2 } },
+    },
+    // Leichte Kleidung: Fell & Leder, ohne Tempo-Malus
     fur_hat: {
-      name: 'Fellmütze', slot: 'head', tab: 'armor', tier: 0, stats: { armor: 3, regen: 0.5 },
+      name: 'Fellmütze', slot: 'head', tab: 'armor', mat: 'fur', style: 'soft', stats: { armor: 3, regen: 0.5 },
       recipe: { forge: 1, hand: true, cost: { fur: 4, bone: 2 } },
     },
     fur_shirt: {
-      name: 'Fellhemd', slot: 'chest', tab: 'armor', tier: 0, stats: { armor: 6, maxHp: 15 },
+      name: 'Fellhemd', slot: 'chest', tab: 'armor', mat: 'fur', style: 'soft', stats: { armor: 6, maxHp: 15 },
       recipe: { forge: 1, cost: { fur: 8, bone: 3 } },
     },
     fur_pants: {
-      name: 'Fellhose', slot: 'legs', tab: 'armor', tier: 0, stats: { armor: 4, maxHp: 5 },
+      name: 'Fellhose', slot: 'legs', tab: 'armor', mat: 'fur', style: 'soft', stats: { armor: 4, maxHp: 5 },
       recipe: { forge: 1, cost: { fur: 6, bone: 2 } },
     },
     fur_boots: {
-      name: 'Fellstiefel', slot: 'feet', tab: 'armor', tier: 0, stats: { armor: 2, speed: 20, stamina: 25 },
+      name: 'Fellstiefel', slot: 'feet', tab: 'armor', mat: 'fur', style: 'soft', stats: { armor: 2, speed: 20, stamina: 25 },
       recipe: { forge: 1, hand: true, cost: { fur: 4, bone: 1 } },
     },
-    iron_hat: {
-      name: 'Eisenhelm', slot: 'head', tab: 'armor', tier: 1, stats: { armor: 8, maxHp: 10 },
-      recipe: { forge: 2, cost: { iron: 12, fur: 2 } },
+    leather_hat: {
+      name: 'Lederkappe', slot: 'head', tab: 'armor', mat: 'leather', style: 'soft', stats: { armor: 5, maxHp: 5, regen: 0.3 },
+      recipe: { forge: 1, cost: { leather: 4, bone: 1 } },
     },
-    iron_shirt: {
-      name: 'Eisenrüstung', slot: 'chest', tab: 'armor', tier: 1, stats: { armor: 16, maxHp: 40, speed: -15 },
-      recipe: { forge: 2, cost: { iron: 25, fur: 4 } },
+    leather_shirt: {
+      name: 'Lederweste', slot: 'chest', tab: 'armor', mat: 'leather', style: 'soft', stats: { armor: 10, maxHp: 25 },
+      recipe: { forge: 1, cost: { leather: 8, bone: 2 } },
     },
-    iron_pants: {
-      name: 'Eisenbeinschutz', slot: 'legs', tab: 'armor', tier: 1, stats: { armor: 11, maxHp: 20, speed: -5 },
-      recipe: { forge: 2, cost: { iron: 18, fur: 3 } },
+    leather_pants: {
+      name: 'Lederhose', slot: 'legs', tab: 'armor', mat: 'leather', style: 'soft', stats: { armor: 7, maxHp: 10 },
+      recipe: { forge: 1, cost: { leather: 6, bone: 1 } },
     },
-    iron_boots: {
-      name: 'Eisenstiefel', slot: 'feet', tab: 'armor', tier: 1, stats: { armor: 5, speed: 10, stamina: 15 },
-      recipe: { forge: 2, cost: { iron: 10, fur: 2 } },
+    leather_boots: {
+      name: 'Lederstiefel', slot: 'feet', tab: 'armor', mat: 'leather', style: 'soft', stats: { armor: 3, speed: 20, stamina: 20 },
+      recipe: { forge: 1, cost: { leather: 4 } },
     },
-  },
+  }),
+  // Alte Item-IDs aus gespeicherten Spielständen → neue (Gold-Waffen wurden zu Bronze)
+  ITEM_ALIASES: { axe_gold: 'axe_bronze', sword_gold: 'sword_bronze', dagger_gold: 'dagger_bronze', spear_gold: 'spear_bronze' },
 
   // Ausrüstungsteile sind Einzelstücke: Seltenheit, Verbesserungsstufe (+1 … +5) und zufällige Boni.
   // rarities: mods = Anzahl Boni, curse = Chance auf einen Fluch. Ein verfluchtes Teil würfelt seine guten Boni
@@ -469,6 +556,7 @@ module.exports = {
       { odds: [60, 28, 10, 2], cost: { iron: 10, whetstone: 4, gold: 25, essence: 1 } },
       { odds: [45, 35, 15, 5], cost: { iron: 15, whetstone: 6, gold: 50, essence: 2 } },
     ],
+    steelFrom: 5, // ab dieser Material-Stufe (Stahl) kostet das Verbessern Stahl- statt Eisenbarren
     reforge: { cost: { scrap: 3, gold: 15 }, growth: 0.5 },
     salvage: 0.4,
     breakScrap: [2, 5], // Schrott, wenn ein Teil beim Verbessern zerbricht
@@ -624,13 +712,25 @@ module.exports = {
         { hp: 2000, cost: { stone: 300, gold: 120, scrap: 5, iron: 30 } },
       ],
     },
-    // Schmelzofen: Behälter wie eine Truhe. Liegen Erz und Kohle darin, entsteht alle time Sekunden
-    // ein Eisenbarren (smelt.cost → smelt.out). Läuft auch, wenn der Besitzer offline ist.
+    // Schmelzofen: Behälter wie eine Truhe, läuft auch, wenn der Besitzer offline ist.
+    // modes: Betriebsarten (im Ofen-Fenster wählbar). Alle time Sekunden wird das erste Rezept der Betriebsart
+    // hergestellt, für das Material und Platz da sind (cost → n × out). level: nötiges Ofen-Level.
+    // Legierungen sind eigene Betriebsarten, damit der Ofen nicht ungefragt alle Barren weiterverarbeitet.
     furnace: {
       name: 'Schmelzofen', size: 1, limit: 2, useRange: 150, category: 'economy', blocksSight: true,
-      desc: 'Schmilzt Eisenerz mit Kohle zu Eisenbarren. Öffnen mit [F].',
-      accepts: ['iron_ore', 'coal', 'iron'], // nur diese Items passen hinein
-      smelt: { cost: { iron_ore: 2, coal: 1 }, out: 'iron' },
+      desc: 'Schmilzt Erze mit Kohle zu Barren, legiert Bronze und veredelt Stahl. Öffnen mit [F].',
+      accepts: ['copper_ore', 'tin_ore', 'iron_ore', 'coal', 'copper', 'tin', 'bronze', 'iron', 'steel'], // nur diese Items passen hinein
+      modes: [
+        {
+          id: 'ore', name: 'Erze schmelzen', recipes: [
+            { cost: { copper_ore: 2, coal: 1 }, out: 'copper' },
+            { cost: { tin_ore: 2, coal: 1 }, out: 'tin' },
+            { cost: { iron_ore: 2, coal: 1 }, out: 'iron' },
+          ],
+        },
+        { id: 'bronze', name: 'Bronze legieren', recipes: [{ cost: { copper: 3, tin: 1, coal: 1 }, out: 'bronze', n: 4 }] },
+        { id: 'steel', name: 'Stahl veredeln', level: 3, recipes: [{ cost: { iron: 1, coal: 3 }, out: 'steel' }] },
+      ],
       levels: [
         { hp: 400, slots: 6, time: 4, cost: { wood: 40, stone: 120 } },
         { hp: 800, slots: 8, time: 3, cost: { stone: 150, iron: 10 } },
@@ -646,9 +746,27 @@ module.exports = {
       name: 'Lagerfeuer', size: 1, limit: 2, useRange: 150, category: 'base', anywhere: true,
       desc: 'Brät Fleisch & Gemüse und verscheucht Tiere, solange Holz darin brennt [F].',
       fuel: 'wood', burnTime: 10,
-      cook: { meat: 'cooked_meat', potato: 'baked_potato', corn: 'roasted_corn' },
-      accepts: ['wood', 'meat', 'potato', 'corn', 'cooked_meat', 'baked_potato', 'roasted_corn'],
+      cook: { meat: 'cooked_meat', potato: 'baked_potato', corn: 'roasted_corn', fish: 'cooked_fish' },
+      accepts: ['wood', 'meat', 'potato', 'corn', 'fish', 'cooked_meat', 'baked_potato', 'roasted_corn', 'cooked_fish'],
       levels: [{ hp: 150, slots: 6, time: 5, cost: { wood: 30, stone: 10 } }],
+    },
+    // Gerbgestell: Behälter wie der Ofen, macht ohne Brennstoff aus Fell Leder (modes wie beim Ofen)
+    tanner: {
+      name: 'Gerbgestell', size: 1, limit: 1, useRange: 150, category: 'economy',
+      desc: 'Gerbt Fell zu Leder (2 Fell → 1 Leder). Öffnen mit [F].',
+      accepts: ['fur', 'leather'],
+      modes: [{ id: 'leather', name: 'Leder gerben', recipes: [{ cost: { fur: 2 }, out: 'leather' }] }],
+      levels: [
+        { hp: 250, slots: 6, time: 15, cost: { wood: 40, bone: 6 } },
+        { hp: 500, slots: 8, time: 10, cost: { wood: 80, stone: 40 } },
+      ],
+    },
+    // Schlafsack: eigener Respawnpunkt (der Kern ist keiner). Auch außerhalb der Basis (anywhere), nie in fremden
+    // Basen oder Städten; begehbar. Nach dem Benutzen cooldown Sekunden gesperrt. Ohne Schlafsack: zufällig in der Welt.
+    sleeping_bag: {
+      name: 'Schlafsack', size: 1, limit: 2, category: 'base', anywhere: true, walkable: true, shootThrough: true, cooldown: 60,
+      desc: 'Hier kannst du nach dem Tod wieder aufwachen (max. 2, Auswahl im Todesbildschirm).',
+      levels: [{ hp: 150, cost: { fur: 8, wood: 20 } }],
     },
     // Truhe: Lager für Items. slots = Plätze pro Level; nutzbar für Besitzer und Teammitglieder.
     storage: {
@@ -733,6 +851,7 @@ module.exports = {
     brute: {
       name: 'Koloss', ai: 'zombie', hp: 260, speed: 55, dmg: 18, sdmg: 50, r: 34, score: 40, xp: 30,
       spawn: { day: 0, night: 4, perDay: 2, max: 25 },
+	  cap: { near: 2, perPlayer: 2 }, habitat: ['urban'],
       drops: [
         { item: 'gold', chance: 1, min: 5, max: 10 },
         { item: 'bone', chance: 0.8, min: 2, max: 4 },
@@ -834,7 +953,18 @@ module.exports = {
 
   // Tiere: capRadius für ENEMIES[*].cap, fireScare = Umkreis, in dem ein brennendes Lagerfeuer Tiere verscheucht,
   // alphaFlee = Sekunden, die ein Rudel nach dem Tod seines Alphas flieht
-  WILDLIFE: { capRadius: 1600, fireScare: 300, alphaFlee: 4 },
+  // Angeln: wait = Sekunden bis zum Biss [min, max], catches: was anbeißt (weight = relative Chance, n = Menge oder [min, max])
+  FISHING: {
+    wait: [3, 8],
+    xp: 4,
+    catches: [
+      { item: 'fish', n: 1, weight: 70 },
+      { item: 'fish', n: 2, weight: 15, msg: '🎣 Ein großer Fisch – reicht für zwei!' },
+      { item: 'scrap', n: [1, 2], weight: 8, msg: '🎣 Nur rostiger Schrott …' },
+      { item: 'can', n: 1, weight: 7, msg: '🎣 Eine Konserve hing am Haken!' },
+    ],
+  },
+  WILDLIFE: { capRadius: 1600, fireScare: 300, torchScare: 220, alphaFlee: 4 }, // torchScare: Umkreis einer Fackel in der Hand
 
   // Hunger & Durst der Spieler (0 bis max): sinken in hungerTime bzw. thirstTime Sekunden von voll auf leer
   // (beim Sprinten sprintMult-mal so schnell). Ist einer leer, kostet das starveDamage Leben pro Sekunde;

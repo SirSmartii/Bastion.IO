@@ -52,14 +52,26 @@ export function gearBadge(r, d) {
 export function fmtStats(def, d) {
   const up = 1 + cfg.GEAR.upgradeBonus * ((d && d.u) || 0), main = def.slot === 'weapon' ? ['damage'] : ['armor', 'maxHp'];
   const st = Object.fromEntries(Object.entries(def.stats).map(([k, v]) => [k, main.includes(k) ? +(v * up).toFixed(1) : v]));
+  if (def.kind === 'backpack') return `+${def.slots} Inventarplätze`;
   if (def.slot !== 'weapon') return Object.entries(st).map(([k, v]) => `${v > 0 ? '+' : ''}${v} ${STAT_LABELS[k] || k}`).join(' · ');
   const pellets = def.projectile && def.projectile.pellets;
   const parts = [pellets ? `${pellets}×${st.damage} Schaden` : `${st.damage} Schaden`, `${st.attackSpeed || +(1 / cfg.PLAYER.attackCooldown).toFixed(1)}/s`];
   parts.push(st.range ? `Weite ${st.range}` : `Reichw. ${st.reach || cfg.PLAYER.reach}`);
   if (def.ammo) parts.push(cfg.AMMO[def.ammo].label);
+  else if (def.kind === 'torch') return `${st.damage} Schaden · leuchtet weit & verscheucht Tiere · brennt ${Math.round(def.burn / 60)} min`;
+  else if (def.kind === 'rod') return 'Am Seeufer [F]: angeln';
   else if (st.mine) parts.push(`×${st.mine} Gestein`, `×${st.gather} Holz`);
   else parts.push(st.gather ? `×${st.gather} Abbau` : 'kein Abbau');
+  if (st.tool !== undefined) parts.push(`Erz: ${oreReach(st.tool)}`);
   return parts.join(' · ');
+}
+
+// Welche Erze ein Werkzeug der Material-Stufe tier abbauen kann (RESOURCES[*].tool)
+function oreReach(tier) {
+  const ores = Object.values(cfg.RESOURCES).filter((r) => r.tool && r.tool <= tier).map((r) => r.tool);
+  if (!ores.length) return 'keins';
+  const top = Math.max(...ores);
+  return top >= 5 ? 'alles inkl. Edelsteine' : top >= 3 ? 'Kupfer, Zinn, Eisen' : 'Kupfer, Zinn';
 }
 
 // Item-Symbol, zentriert auf (x, y) mit Größe s (Grafiken unter assets/items und assets/gear)
@@ -78,23 +90,38 @@ export function drawItemIcon(item, x, y, s) {
 // Ordner der stapelbaren Items
 const ITEM_ART = {};
 for (const [folder, items] of Object.entries({
-  materials: ['wood', 'stone', 'gold', 'iron_ore', 'coal', 'iron', 'bone', 'scrap', 'fur', 'whetstone', 'essence', 'ward'],
-  food: ['meat', 'cooked_meat', 'berries', 'apple', 'carrot', 'potato', 'baked_potato', 'corn', 'roasted_corn', 'pumpkin', 'can'],
+  materials: ['wood', 'stone', 'gold', 'iron_ore', 'coal', 'iron', 'bone', 'scrap', 'fur', 'whetstone', 'essence', 'ward',
+    'copper_ore', 'tin_ore', 'copper', 'tin', 'bronze', 'steel', 'diamond', 'ruby', 'leather'],
+  food: ['meat', 'cooked_meat', 'berries', 'apple', 'carrot', 'potato', 'baked_potato', 'corn', 'roasted_corn', 'pumpkin', 'can',
+    'fish', 'cooked_fish', 'stew', 'berry_juice', 'fish_soup'],
   supplies: ['bottle', 'water', 'bandage'],
   ammo: ['bullet', 'shell'],
 })) for (const item of items) ITEM_ART[item] = `items/${folder}/${item}`;
 
-// Material-Farben einer Waffe als Platzhalter für die Grafik ($C hell, $D dunkel)
-const weaponColors = (def) => {
-  const [C, D] = def.color || [LEVEL_COLORS[def.tier], LEVEL_DARK[def.tier]];
-  return { C, D };
-};
+// Material-Farben eines Teils als Platzhalter für die Grafik ($C hell, $D dunkel, $L Glanz)
+export function gearColors(def) {
+  const [C, D] = def.color || [LEVEL_COLORS[def.tier || 0], LEVEL_DARK[def.tier || 0]];
+  return { C, D, L: mixColor(C, '#ffffff', 0.45) };
+}
+
+function mixColor(a, b, t) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const ch = (shift) => Math.round(((pa >> shift) & 255) * (1 - t) + ((pb >> shift) & 255) * t).toString(16).padStart(2, '0');
+  return `#${ch(16)}${ch(8)}${ch(0)}`;
+}
 
 // Waffe entlang der +x-Achse ab dem Griff (Ursprung). Für Symbole und in der Hand.
 // pull: wie weit die Bogensehne gespannt ist (0..1)
 export function drawWeapon(def, pull = 0) {
   if (def.kind === 'gun') return drawGun(def.model);
-  art(`gear/weapons/${def.kind}`, weaponColors(def)); // axe, pick, sword, dagger, spear, bow
+  art(`gear/weapons/${def.kind}`, gearColors(def)); // axe, pick, sword, dagger, spear, bow, torch, rod
+  if (def.kind === 'torch') {
+    // flackernde Flamme am Kopf der Fackel
+    const t = performance.now() / 1000, f = 1 + Math.sin(t * 13) * 0.12 + Math.sin(t * 29) * 0.08;
+    circle(42, 0, 9 * f, 'rgba(255,120,30,0.55)');
+    circle(41, 0, 6 * f, 'rgba(255,190,60,0.9)');
+    circle(40, 0, 3 * f, '#fff3b0');
+  }
   if (def.kind === 'bow') {
     // Sehne wird beim Spannen zurückgezogen
     ctx.beginPath();
@@ -112,13 +139,14 @@ export function drawGun(model) {
 
 // Symbol für ein Ausrüstungsteil (Mitte 0/0, Größe 40)
 function drawEquipShape(def) {
-  if (def.slot !== 'weapon') return art(`gear/armor/${def.tier ? 'iron' : 'fur'}/${def.slot}`);
+  if (def.kind === 'backpack') return art('gear/back/backpack', gearColors(def));
+  if (def.slot !== 'weapon') return art(`gear/armor/${def.style}/${def.slot}`, gearColors(def));
   ctx.save();
   if (def.kind === 'bow') ctx.translate(-6, 0);
   else {
     // Lange Waffen schräg und verkleinert, damit sie in den Slot passen
     ctx.rotate(-0.75);
-    const len = def.kind === 'gun' ? { pistol: 36, shotgun: 86, rifle: 100 }[def.model] : { sword: 62, dagger: 34, spear: 110, pick: 54 }[def.kind] || 48;
+    const len = def.kind === 'gun' ? { pistol: 36, shotgun: 86, rifle: 100 }[def.model] : { sword: 62, dagger: 34, spear: 110, pick: 54, torch: 48, rod: 72 }[def.kind] || 48;
     const k = Math.min(1, 46 / len);
     ctx.scale(k, k);
     ctx.translate(def.kind === 'gun' && def.model !== 'pistol' ? -len / 2 + 22 : -len / 2, 0);

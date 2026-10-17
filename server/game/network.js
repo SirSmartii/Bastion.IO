@@ -55,6 +55,8 @@ module.exports = {
       case 'drop': this.dropFromSlot(p, int(m.slot), int(m.n), +m.x, +m.y); break;
       case 'eat': this.eat(p, Number.isInteger(m.slot) ? m.slot : -1); break;
       case 'drink': this.drink(p); break;
+      case 'spawn': this.chooseSpawn(p, int(m.id)); break;
+      case 'mode': this.setProcessMode(p, int(m.id), String(m.m)); break;
       case 'ammo': this.cycleAmmo(p); break;
       case 'hb': this.assignHotbar(p, int(m.i), m.item); break;
       case 'use': this.useHotbar(p, int(m.i)); break;
@@ -196,9 +198,9 @@ module.exports = {
     return list;
   },
 
-  // Sichtbare Ausrüstung: Item-IDs für Waffe, Mütze, Shirt (0 = nichts)
+  // Sichtbare Ausrüstung: Item-IDs für Waffe, Mütze, Shirt, Rucksack (0 = nichts)
   equipLook(p) {
-    return [p.equip.weapon || 0, p.equip.head || 0, p.equip.chest || 0];
+    return [p.equip.weapon || 0, p.equip.head || 0, p.equip.chest || 0, p.equip.back || 0];
   },
 
   zombiesInView(p, x0, y0, x1, y1, inView) {
@@ -241,6 +243,10 @@ module.exports = {
       hu: Math.round(p.hunger), th: Math.round(p.thirst),
       // Zuletzt verarbeitete Eingabe und wie viele Ticks seitdem gelaufen sind (Abgleich der Vorhersage)
       sq: p.inSeq, sn: p.inTicks,
+      // Tot: Schlafsäcke zur Auswahl [id, x, y, Sekunden bis frei]; Angeln: Fortschritt 0..1; Fackel: Sekunden übrig
+      sb: p.dead ? this.sleepingBags(p).map((b) => [b.s.id, Math.round(b.s.x), Math.round(b.s.y), b.wait]) : undefined,
+      fi: p.fishing ? +Math.min(1, (this.now - p.fishing.start) / (p.fishing.until - p.fishing.start)).toFixed(2) : undefined,
+      tl: p.equip.weapon === 'torch' ? Math.ceil(p.torchLeft || C.EQUIPMENT.torch.burn) : undefined,
       al: Math.floor(p.alive), ab: Math.floor(Math.max(p.bestAlive, p.alive)), // Überlebenszeit, Rekord (s)
       prot: Math.max(0, Math.ceil(p.protectUntil - this.time)), calm: Math.max(0, Math.ceil(p.calmUntil - this.time)),
       // Team: Mitglieder als [id, Name, x, y, Leben-Anteil, tot, Kern-x, Kern-y] (für Karten & Team-Fenster)
@@ -268,11 +274,12 @@ module.exports = {
       count: p.count, max: core ? levelOf(core).maxStructures : 0, counts: p.counts,
       forge: p.forge ? [p.forge.id, p.forge.x, p.forge.y, p.forge.level] : null,
       up: core ? this.upkeepInfo(core) : null,
+      bags: [...this.ownedBy(p.id)].filter((s) => s.type === 'sleeping_bag').map((s) => [s.id, Math.round(s.x), Math.round(s.y)]),
       // Offener Behälter: [id, Slots im Format des Inventars, Unterhalt (nur Kern), Ofen-Zustand (nur Ofen)]
       ch: openChest ? [
         openChest.id, openChest.items.map((s) => (s ? (s.d ? [s.item, s.n, s.d] : [s.item, s.n]) : 0)),
         openChest.type === 'core' ? this.upkeepInfo(openChest) : null,
-        openChest.type === 'furnace' ? this.furnaceInfo(openChest) : openChest.type === 'campfire' ? this.campfireInfo(openChest) : null,
+        C.STRUCTURES[openChest.type].modes ? this.furnaceInfo(openChest) : openChest.type === 'campfire' ? this.campfireInfo(openChest) : null,
       ] : null,
       prac: this.practiceInfo(p), // Fähigkeiten durch Übung: [[id, Stufe, EP, nötig], …]
       ti: [...p.invites.keys()].filter((id) => this.players.has(id)).map((id) => [id, this.players.get(id).name]),

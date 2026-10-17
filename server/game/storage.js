@@ -5,11 +5,12 @@ const C = require('../config');
 const Inv = require('../inventory');
 const { levelOf } = require('./util');
 
-const CONTAINER_NAMES = { core: 'Dieser Kern', storage: 'Diese Truhe', furnace: 'Dieser Ofen', campfire: 'Dieses Lagerfeuer' };
+const CONTAINER_NAMES = { core: 'Dieser Kern', storage: 'Diese Truhe', furnace: 'Dieser Ofen', campfire: 'Dieses Lagerfeuer', tanner: 'Dieses Gerbgestell' };
 const REFUSED = {
   core: 'Ins Kern-Lager gehören nur Holz, Stein und Gold für den Unterhalt.',
-  furnace: 'In den Schmelzofen gehören nur Eisenerz, Kohle und Eisenbarren.',
-  campfire: 'Ins Lagerfeuer gehören nur Holz und was man braten kann (Fleisch, Kartoffeln, Mais).',
+  furnace: 'In den Schmelzofen gehören nur Erze, Kohle und Barren.',
+  tanner: 'Ins Gerbgestell gehören nur Fell und Leder.',
+  campfire: 'Ins Lagerfeuer gehören nur Holz und was man braten kann (Fleisch, Fisch, Kartoffeln, Mais).',
 };
 
 module.exports = {
@@ -61,32 +62,60 @@ module.exports = {
     return C.STRUCTURES[s.type].accepts || null;
   },
 
-  // ---------- Schmelzofen ----------
+  // ---------- Schmelzofen & Gerbgestell ----------
   //
-  // Liegen genug Erz und Kohle im Ofen (smelt.cost), brennt er: nach time Sekunden (je nach Level)
-  // werden sie verbraucht und ein Barren (smelt.out) liegt im Ofen. Ohne Material oder Platz geht er aus.
+  // Gebäude mit modes (STRUCTURES.furnace/tanner): Die gewählte Betriebsart (s.mode) bestimmt die Rezepte.
+  // Liegt Material für eines davon darin und ist Platz für das Ergebnis, läuft es: nach time Sekunden
+  // (je nach Level) wird das Material verbraucht und n × out liegt im Gebäude. Sonst geht es aus.
 
-  updateFurnace(s, dt) {
-    const { cost, out } = C.STRUCTURES.furnace.smelt;
-    const canSmelt = Inv.canAfford(s.items, cost) && Inv.space(s.items, out) > 0;
-    s.active = canSmelt;
-    if (!canSmelt) { s.smeltT = 0; return; }
+  processMode(s) {
+    const modes = C.STRUCTURES[s.type].modes;
+    return modes.find((m) => m.id === s.mode) || modes[0];
+  },
+
+  // Erstes Rezept der Betriebsart, das gerade möglich ist (oder null)
+  nextProcess(s) {
+    const mode = this.processMode(s);
+    if (mode.level && s.level + 1 < mode.level) return null;
+    return mode.recipes.find((r) => Inv.canAfford(s.items, r.cost) && Inv.space(s.items, r.out) >= (r.n || 1)) || null;
+  },
+
+  updateProcessor(s, dt) {
+    const recipe = this.nextProcess(s);
+    s.active = !!recipe;
+    if (!recipe) { s.smeltT = 0; return; }
     s.smeltT = (s.smeltT || 0) + dt;
     const time = levelOf(s).time;
     if (s.smeltT < time) return;
     s.smeltT -= time;
-    Inv.pay(s.items, cost);
-    Inv.add(s.items, out, 1);
+    Inv.pay(s.items, recipe.cost);
+    Inv.add(s.items, recipe.out, recipe.n || 1);
     const owner = this.players.get(s.owner);
     if (owner) this.addXp(owner, C.XP.smelt);
   },
 
-  // Für die Anzeige: { a: brennt, p: Fortschritt 0..1, t: Sekunden pro Barren, n: wie viele Barren das Material noch ergibt }
+  // Betriebsart wählen (Besitzer & Team, in Reichweite)
+  setProcessMode(p, id, mode) {
+    const s = this.structures.get(id);
+    if (!s || !C.STRUCTURES[s.type].modes || !this.canUseChest(p, s)) return;
+    const m = C.STRUCTURES[s.type].modes.find((x) => x.id === mode);
+    if (!m) return;
+    if (m.level && s.level + 1 < m.level) return this.msg(p, `${m.name} braucht ${C.STRUCTURES[s.type].name} Lv ${m.level} – upgraden mit [E].`);
+    s.mode = m.id;
+    s.smeltT = 0;
+  },
+
+  // Für die Anzeige: { a: läuft, p: Fortschritt 0..1, t: Sekunden pro Durchgang, n: wie oft das Material noch reicht,
+  //   m: gewählte Betriebsart }
   furnaceInfo(s) {
-    const { cost } = C.STRUCTURES.furnace.smelt, time = levelOf(s).time;
-    let bars = Infinity;
-    for (const [item, k] of Object.entries(cost)) bars = Math.min(bars, Math.floor(Inv.count(s.items, item) / k));
-    return { a: s.active ? 1 : 0, p: Math.round(Math.min(1, (s.smeltT || 0) / time) * 20) / 20, t: time, n: bars };
+    const time = levelOf(s).time, mode = this.processMode(s);
+    let runs = 0;
+    for (const r of mode.recipes) {
+      let k = Infinity;
+      for (const [item, need] of Object.entries(r.cost)) k = Math.min(k, Math.floor(Inv.count(s.items, item) / need));
+      runs += k;
+    }
+    return { a: s.active ? 1 : 0, p: Math.round(Math.min(1, (s.smeltT || 0) / time) * 20) / 20, t: time, n: runs, m: mode.id };
   },
 
   // ---------- Lagerfeuer ----------

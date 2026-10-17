@@ -69,7 +69,8 @@ function collide(p) {
   for (const o of ruinsIn(x0 - h, y0 - h, x1 + h, y1 + h)) pushOutOfRect(p, o.x, o.y, h, h);
   for (const s of structs.values()) {
     if (Math.abs(s.x - p.x) > 200 || Math.abs(s.y - p.y) > 200) continue;
-    if (cfg.STRUCTURES[s.type].passOwner && isAllied(s.owner)) continue;
+    const def = cfg.STRUCTURES[s.type];
+    if (def.walkable || (def.passOwner && isAllied(s.owner))) continue;
     const { hw, hh } = structSize(s.type, s.rot);
     pushOutOfRect(p, s.x, s.y, hw, hh);
   }

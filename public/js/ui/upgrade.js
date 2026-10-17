@@ -146,8 +146,11 @@ export function drawUpgrade(L, x, y) {
     text(`Höchste Stufe erreicht (+${d.u})`, dx + 4, by + 20, { size: 14, bold: true, color: '#ffd76a' });
   } else {
     const step = cfg.GEAR.upgrade[target - 1], ward = !!ui.upgWard && (me.res.ward || 0) > 0 && step.odds[3] > 0;
+    // Stahl-Ausrüstung und besser: Stahl statt Eisen (wie upgradeCost in server/game/gear.js)
+    const cost = { ...step.cost };
+    if ((def.tier || 0) >= cfg.GEAR.steelFrom && cost.iron) { cost.steel = cost.iron; delete cost.iron; }
     text(`Verbessern auf +${target}:`, dx + 4, by + 4, { size: 13, bold: true, color: '#f2e2c4' });
-    costText(step.cost, dx + 130, by + 4);
+    costText(cost, dx + 130, by + 4);
     // Chancen als Leiste
     const odds = upgradeOdds(target, ward), barW = dw - 8;
     let bx = dx + 4;
@@ -164,7 +167,7 @@ export function drawUpgrade(L, x, y) {
       text(`Schutzsiegel benutzen (${me.res.ward}) – verhindert Zerstören`, wardBtn.rect.x + 24, wardBtn.rect.y + 15, { size: 12, color: '#ffd76a' });
     }
     const upg = L.buttons.find((b) => b.act === 'upg');
-    button(upg.rect, `Verbessern +${target}`, have(step.cost));
+    button(upg.rect, `Verbessern +${target}`, have(cost));
   }
   const salv = L.buttons.find((b) => b.act === 'salv');
   if (salv) {

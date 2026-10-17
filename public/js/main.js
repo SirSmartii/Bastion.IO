@@ -8,7 +8,7 @@
 //   draw/*        Welt, Figuren, Licht          ui/*         HUD & Fenster
 
 import {
-  canvas, ctx, cfg, me, myId, now, cam, ui, mouse, players, zombies, structs, groundItems, projectiles, hovered,
+  canvas, ctx, cfg, me, myId, myAngle, now, cam, ui, mouse, players, zombies, structs, groundItems, projectiles, hovered,
   W, H, dpr, scale, setScreen, setNow, setHovered, screenToWorld,
 } from './state.js';
 import { resourcesIn } from './world.js';
@@ -211,12 +211,39 @@ function drawResource(r) {
   else if (!TREE_TYPES.has(r.type)) drawRock(r);
 }
 
+// Beim Angeln: Schwimmer auf dem Wasser in Blickrichtung, Schnur und ein Ring, wie lange es noch dauert
+function drawFishing() {
+  const self = players.get(myId);
+  if (!self) return;
+  const a = myAngle, bx = self.dx + Math.cos(a) * 110, by = self.dy + Math.sin(a) * 110, bob = Math.sin(now * 5) * 2;
+  ctx.strokeStyle = 'rgba(240,235,220,0.7)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(self.dx + Math.cos(a) * 60, self.dy + Math.sin(a) * 60);
+  ctx.lineTo(bx, by + bob);
+  ctx.stroke();
+  ctx.fillStyle = '#e8e2d0';
+  ctx.beginPath();
+  ctx.arc(bx, by + bob, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#d63a3a';
+  ctx.beginPath();
+  ctx.arc(bx, by + bob, 5, Math.PI, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(self.dx, self.dy - 48, 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * me.fi);
+  ctx.stroke();
+}
+
 // "[F] …" über der nächsten Truhe/dem Kern bzw. der Schmiede
 function drawInteractionPrompts() {
   const container = !me.ch && ui.panel !== 'forge' ? nearestContainer() : null;
   if (container) {
-    const { s } = container, label = { core: '[F] Kern-Lager', furnace: '[F] Schmelzofen', storage: '[F] Truhe', campfire: '[F] Lagerfeuer' }[s.type];
+    const { s } = container, label = { core: '[F] Kern-Lager', furnace: '[F] Schmelzofen', storage: '[F] Truhe', campfire: '[F] Lagerfeuer', tanner: '[F] Gerbgestell' }[s.type];
     drawPrompt(label, s.x, s.y - structSize(s.type, s.rot).hh - 11);
-  } else if (!me.ch && ui.panel !== 'forge' && !nearForge() && nearWater()) drawPrompt('[F] Trinken', me.x, me.y - 64);
+  } else if (!me.ch && ui.panel !== 'forge' && !nearForge() && nearWater()) drawPrompt(me.eq.weapon === 'rod' ? (me.fi !== undefined ? '🎣 stillhalten …' : '[F] Angeln') : '[F] Trinken', me.x, me.y - 64);
+  if (me.fi !== undefined) drawFishing();
   if (ui.panel !== 'forge' && nearForge()) drawPrompt('[F] Schmiede', me.forge[1], me.forge[2] - 42);
 }

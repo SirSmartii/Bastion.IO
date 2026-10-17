@@ -302,11 +302,15 @@ module.exports = {
     return null;
   },
 
-  // Brennendes Lagerfeuer in der Nähe (verscheucht Tiere) – oder null
+  // Brennendes Lagerfeuer oder Spieler mit Fackel in der Nähe (verscheucht Tiere) – oder null
   burningFireNear(z) {
     const R = C.WILDLIFE.fireScare;
     for (const o of this.statics.query(z.x, z.y, R)) {
       if (o.kind === 's' && o.type === 'campfire' && o.active && Math.hypot(o.x - z.x, o.y - z.y) < R) return o;
+    }
+    const T = C.WILDLIFE.torchScare;
+    for (const p of this.players.values()) {
+      if (!p.dead && p.equip.weapon === 'torch' && Math.hypot(p.x - z.x, p.y - z.y) < T) return p;
     }
     return null;
   },
@@ -389,7 +393,7 @@ module.exports = {
 
     // Gebäude blockieren; das Ziel (oder irgendein berührtes Gebäude) wird angegriffen, Stacheln verletzen
     let blocker = null;
-    this.collideStatics(z, () => true, (s) => {
+    this.collideStatics(z, (s) => !C.STRUCTURES[s.type].walkable, (s) => {
       if (!blocker || s === z.target) blocker = s;
       if (s.type === 'spike' && z.spikeCd <= 0) {
         z.spikeCd = 0.6;

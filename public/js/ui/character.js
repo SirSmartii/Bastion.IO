@@ -1,4 +1,4 @@
-// Charakterfenster [C]: Ausrüstungs-Slots (Mütze, Shirt, Hose, Schuhe, Waffe), alle Werte und die
+// Charakterfenster [C]: Ausrüstungs-Slots (Mütze, Shirt, Hose, Schuhe, Waffe, Rucksack), alle Werte und die
 // Fähigkeiten durch Übung (Laufen, Holzfällen …).
 
 import { ctx, cfg, me, ui, mouse, W, H } from '../state.js';
@@ -20,6 +20,7 @@ export function charLayout() {
     legs: { x: cx - 30, y: y + 196, w: size, h: size },
     feet: { x: cx - 30, y: y + 266, w: size, h: size },
     weapon: { x: x + 20, y: y + 126, w: size, h: size },
+    back: { x: x + 20, y: y + 216, w: size, h: size }, // Rucksack (unter dem Schriftzug "Waffe")
   };
   return { panel: { x, y, w, h }, slots };
 }

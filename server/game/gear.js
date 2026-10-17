@@ -35,11 +35,18 @@ function pickNew(ids, taken) {
   return free.length ? free[Math.floor(Math.random() * free.length)] : null;
 }
 
+// Kosten für Verbessern auf +target; Stahl-Ausrüstung und besser braucht Stahl statt Eisen (GEAR.steelFrom)
+function upgradeCost(item, target) {
+  const cost = { ...C.GEAR.upgrade[target - 1].cost }, def = C.EQUIPMENT[item];
+  if (def && (def.tier || 0) >= C.GEAR.steelFrom && cost.iron) { cost.steel = cost.iron; delete cost.iron; }
+  return cost;
+}
+
 module.exports = {
   // Neues Teil auswürfeln. source: 'craft' | 'loot' | 'boss'. Ergebnis: d oder null (gewöhnlich)
   rollGear(item, source, p = null) {
     const def = lookup(C.EQUIPMENT, item), G = C.GEAR;
-    if (!def) return null;
+    if (!def || def.noRoll) return null; // Verbrauchsteile (Fackel, Angel, Rucksack) ohne Seltenheit
     let r = weightedIndex(G.sources[source] || G.sources.loot);
     // Übung im Schmieden: manchmal eine Seltenheit besser (höchstens bis Selten)
     if (p && source === 'craft' && r < 2 && Math.random() < this.practiceBonus(p, 'smithLuck')) r++;
@@ -104,7 +111,7 @@ module.exports = {
     if (src === 'eq') {
       const slot = C.EQUIP_SLOTS.find((s) => s.id === i);
       const item = slot && p.equip[slot.id];
-      if (!item) return null;
+      if (!item || C.EQUIPMENT[item].noRoll) return null;
       return {
         item, d: p.gear[slot.id] || null, equipped: true,
         set: (d) => { p.gear[slot.id] = d; this.computeStats(p); },
@@ -112,7 +119,7 @@ module.exports = {
       };
     }
     const s = Number.isInteger(i) && i >= 0 && i < p.inv.length ? p.inv[i] : null;
-    if (!s || !lookup(C.EQUIPMENT, s.item)) return null;
+    if (!s || !lookup(C.EQUIPMENT, s.item) || C.EQUIPMENT[s.item].noRoll) return null;
     return {
       item: s.item, d: s.d || null, equipped: false,
       set: (d) => { if (d) s.d = d; else delete s.d; },
@@ -137,7 +144,7 @@ module.exports = {
     if (!ref) return;
     const d = ref.d || { r: 0, u: 0, m: [] }, target = d.u + 1, name = C.EQUIPMENT[ref.item].name;
     if (target > C.GEAR.upgrade.length) return this.msg(p, `${name} ist schon auf +${d.u}.`);
-    const { cost } = C.GEAR.upgrade[target - 1];
+    const cost = upgradeCost(ref.item, target);
     if (!Inv.canAfford(p.inv, cost)) return this.msg(p, `Nicht genug Material für +${target}.`);
     const useWard = !!ward && Inv.count(p.inv, 'ward') > 0 && C.GEAR.upgrade[target - 1].odds[3] > 0;
     const odds = this.upgradeOdds(p, target, useWard);

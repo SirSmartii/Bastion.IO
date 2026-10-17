@@ -7,8 +7,8 @@ const C = require('./config');
 
 const stackOf = (item) => (C.EQUIPMENT[item] ? 1 : C.INVENTORY.stack[item] || 100);
 
-function create() {
-  return new Array(C.INVENTORY.slots).fill(null);
+function create(slots = C.INVENTORY.slots) {
+  return new Array(slots).fill(null);
 }
 
 function count(inv, item) {
