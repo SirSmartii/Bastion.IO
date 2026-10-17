@@ -1,20 +1,52 @@
-// Menü [Esc]: eigenes Überleben, Spielerliste (Bestenliste), Tastenübersicht, Weiterspielen & Ausloggen.
-// Das Spiel läuft dabei weiter – es ist ein Mehrspieler-Spiel.
+// Menü [Esc] mit zwei Reitern: Übersicht (eigenes Überleben, Spielerliste, Konto) und Steuerung (alle Tasten,
+// nach Themen gruppiert). Unten Weiterspielen & Ausloggen. Das Spiel läuft dabei weiter – es ist ein Mehrspieler-Spiel.
 
 import { ctx, me, myId, account, leaderboard, online, ui, mouse, W, H } from '../state.js';
-import { text, inRect } from '../draw/primitives.js';
+import { text, inRect, rrect } from '../draw/primitives.js';
 import { logout } from '../net.js';
-import { woodPanel, parchment, woodButton, CREAM, INK, INK_LIGHT } from './theme.js';
+import { woodPanel, parchment, woodButton, CREAM, INK, INK_LIGHT, PARCHMENT, PARCHMENT_DARK, WOOD_DARK } from './theme.js';
 import { fmtDuration } from './hud.js';
 
-const WIDTH = 440, PAD = 20, ROW = 22;
+const WIDTH = 520, PAD = 20, ROW = 22, KEY_ROW = 21;
 
 // Auch im Tod offen lassen: Ausloggen soll immer gehen
 export const whileDead = true;
 
-const KEYS = [
-  '[Tab] Inventar · [C] Charakter · [B] Bauen · [G] Handwerk · [K] Fertigkeiten',
-  '[T] Team · [M] Karte · [F] Benutzen · [H] Essen · [Shift] Sprinten · [Enter] Chat',
+const TABS = [{ id: 'overview', name: 'Übersicht' }, { id: 'keys', name: 'Steuerung' }];
+
+// Tastenhilfe: [Gruppe, [[Tasten, Beschreibung], …]]
+const CONTROLS = [
+  ['Bewegen & Kämpfen', [
+    [['W', 'A', 'S', 'D'], 'Bewegen'],
+    [['Shift'], 'Sprinten (kostet Ausdauer)'],
+    [['Linksklick'], 'Schlagen, schießen, abbauen'],
+    [['1–6'], 'Hotbar benutzen'],
+    [['R'], 'Munition wechseln'],
+    [['Q', 'Rechtsklick'], 'Zurück zur Waffe'],
+    [['H'], 'Essen, trinken, verbinden'],
+  ]],
+  ['Bauen', [
+    [['B'], 'Baumenü'],
+    [['R'], 'Gebäude drehen'],
+    [['Mausrad'], 'Waffe ↔ Gebäude'],
+    [['E'], 'Gebäude upgraden'],
+    [['X'], 'Gebäude abreißen'],
+    [['Schlagen'], 'Eigenes Gebäude reparieren'],
+  ]],
+  ['Fenster', [
+    [['Tab'], 'Inventar'],
+    [['C'], 'Charakter & Ausrüstung'],
+    [['G'], 'Handwerk & Kochen'],
+    [['K'], 'Fertigkeiten'],
+    [['T'], 'Team'],
+    [['M'], 'Weltkarte'],
+  ]],
+  ['Sonstiges', [
+    [['F'], 'Benutzen · am See trinken / angeln'],
+    [['Enter'], 'Chat · /t = Teamchat'],
+    [['Esc'], 'Menü & diese Hilfe'],
+    [['F3'], 'Leistungsanzeige'],
+  ]],
 ];
 
 // Spielerliste: Bestenliste vom Server (Top 10); wer nicht darin steht, sieht sich selbst darunter
@@ -24,13 +56,21 @@ function rows() {
   return list;
 }
 
+// Höhe des Inhalts je Reiter (zwei Spalten bei der Steuerung)
+function contentHeight(tab, list) {
+  if (tab === 'overview') return 64 + 30 + list.length * ROW + 18 + 28;
+  const col = (groups) => groups.reduce((h, [, keys]) => h + 26 + keys.length * KEY_ROW + 8, 0);
+  return Math.max(col(CONTROLS.slice(0, 2)), col(CONTROLS.slice(2))) + 4;
+}
+
 export function layout() {
-  const list = rows();
-  const h = 58 + 64 + 30 + list.length * ROW + 18 + 54 + 56;
+  const tab = TABS.some((t) => t.id === ui.escTab) ? ui.escTab : 'overview', list = rows();
+  const top = 92, h = top + contentHeight(tab, list) + 56;
   const x = Math.round(W / 2 - WIDTH / 2), y = Math.round(Math.max(20, H / 2 - h / 2));
-  const bw = (WIDTH - PAD * 2 - 12) / 2, by = y + h - 50;
+  const bw = (WIDTH - PAD * 2 - 12) / 2, by = y + h - 50, tw = (WIDTH - PAD * 2 - 8) / TABS.length;
   return {
-    panel: { x, y, w: WIDTH, h }, list,
+    panel: { x, y, w: WIDTH, h }, list, tab, top: y + top,
+    tabs: TABS.map((t, i) => ({ ...t, rect: { x: x + PAD + i * (tw + 8), y: y + 48, w: tw, h: 30 } })),
     resume: { x: x + PAD, y: by, w: bw, h: 34 },
     logout: { x: x + PAD + bw + 12, y: by, w: bw, h: 34 },
   };
@@ -38,18 +78,33 @@ export function layout() {
 
 export function onClick(x, y) {
   const L = layout();
-  if (inRect(x, y, L.logout)) logout();
+  const tab = L.tabs.find((t) => inRect(x, y, t.rect));
+  if (tab) ui.escTab = tab.id;
+  else if (inRect(x, y, L.logout)) logout();
   else if (inRect(x, y, L.resume) || !inRect(x, y, L.panel)) ui.panel = null;
 }
 
 export function draw() {
-  const L = layout(), { x, y, w } = L.panel, left = x + PAD, right = x + w - PAD;
+  const L = layout(), { x, y, w } = L.panel;
   woodPanel(x, y, w, L.panel.h, 12);
-  text('Menü', left, y + 34, { size: 20, bold: true, color: CREAM });
-  text('[Esc] schließen', right, y + 34, { size: 12, color: 'rgba(243,226,192,0.6)', align: 'right' });
+  text('Menü', x + PAD, y + 34, { size: 20, bold: true, color: CREAM });
+  text('[Esc] schließen', x + w - PAD, y + 34, { size: 12, color: 'rgba(243,226,192,0.6)', align: 'right' });
+  for (const t of L.tabs) {
+    const active = t.id === L.tab, hover = inRect(mouse.x, mouse.y, t.rect);
+    rrect(t.rect.x, t.rect.y, t.rect.w, t.rect.h, 6, active ? PARCHMENT : hover ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.25)',
+      active ? PARCHMENT_DARK : 'rgba(255,220,160,0.18)', 1.5);
+    text(t.name, t.rect.x + t.rect.w / 2, t.rect.y + 20, { size: 13, bold: true, align: 'center', color: active ? INK : CREAM });
+  }
+  if (L.tab === 'overview') drawOverview(L);
+  else drawControls(L);
+  woodButton(L.resume, 'Weiterspielen', inRect(mouse.x, mouse.y, L.resume), '#4f6b2a');
+  woodButton(L.logout, '⏻ Ausloggen', inRect(mouse.x, mouse.y, L.logout), '#8a3a24');
+}
 
+function drawOverview(L) {
+  const { x, w } = L.panel, left = x + PAD, right = x + w - PAD;
   // Eigenes Überleben
-  let cy = y + 50;
+  let cy = L.top;
   parchment(left, cy, w - PAD * 2, 56);
   const alive = me.dead ? 0 : me.al || 0;
   text(`⏳ ${fmtDuration(alive)} überlebt`, left + 12, cy + 22, { size: 15, bold: true, color: INK });
@@ -57,9 +112,9 @@ export function draw() {
   text(`🏆 ${me.score} Punkte   💀 ${me.kills} Kills   Lv ${me.lvl}`, left + 12, cy + 44, { size: 13, color: INK_LIGHT });
 
   // Spielerliste
-  cy += 80;
+  cy += 82;
   text(`Spieler · ${online} online`, left, cy, { size: 14, bold: true, color: CREAM });
-  cy += 12;
+  cy += 10;
   parchment(left, cy, w - PAD * 2, L.list.length * ROW + 10);
   L.list.forEach((r, i) => {
     const ry = cy + 21 + i * ROW, color = r.mine ? '#2f6a1c' : INK;
@@ -72,12 +127,46 @@ export function draw() {
     text(String(r.score), right - 12, ry, { size: 13, bold: r.mine, color, align: 'right' });
   });
 
-  // Konto, Tasten
-  cy += L.list.length * ROW + 30;
+  cy += L.list.length * ROW + 34;
   text(account ? `👤 ${account} · Fortschritt wird gespeichert` : '👤 Gast · Fortschritt wird nicht gespeichert', left, cy,
     { size: 12, color: account ? '#b6e08a' : '#e0b0a0' });
-  KEYS.forEach((line, i) => text(line, left, cy + 22 + i * 16, { size: 11, color: 'rgba(243,226,192,0.7)' }));
+}
 
-  woodButton(L.resume, 'Weiterspielen', inRect(mouse.x, mouse.y, L.resume), '#4f6b2a');
-  woodButton(L.logout, '⏻ Ausloggen', inRect(mouse.x, mouse.y, L.logout), '#8a3a24');
+// Zwei Spalten: links Bewegen & Kämpfen, Bauen – rechts Fenster, Sonstiges
+function drawControls(L) {
+  const { x, w } = L.panel, colW = (w - PAD * 2 - 12) / 2;
+  [CONTROLS.slice(0, 2), CONTROLS.slice(2)].forEach((groups, c) => {
+    const cx = x + PAD + c * (colW + 12);
+    let cy = L.top;
+    for (const [title, keys] of groups) {
+      text(title, cx, cy + 14, { size: 13, bold: true, color: CREAM });
+      cy += 22;
+      parchment(cx, cy, colW, keys.length * KEY_ROW + 6);
+      keys.forEach(([caps, label], i) => {
+        const ry = cy + 4 + i * KEY_ROW;
+        let kx = cx + 8;
+        for (const cap of caps) kx = keyCap(cap, kx, ry + 2) + 4;
+        ctx.font = '12px Segoe UI, sans-serif';
+        text(fit(label, cx + colW - 8 - Math.max(kx, cx + 62)), Math.max(kx, cx + 62), ry + 15, { size: 12, color: INK });
+      });
+      cy += keys.length * KEY_ROW + 14;
+    }
+  });
+}
+
+// Taste wie eine Tastenkappe; liefert das rechte Ende
+function keyCap(label, x, y) {
+  ctx.font = 'bold 11px Segoe UI, sans-serif';
+  const w = Math.max(18, ctx.measureText(label).width + 10);
+  rrect(x, y, w, 17, 3, '#fbf3df', WOOD_DARK, 1);
+  rrect(x, y + 14, w, 3, 2, 'rgba(46,29,14,0.35)');
+  text(label, x + w / 2, y + 12, { size: 11, bold: true, align: 'center', color: INK });
+  return x + w;
+}
+
+// Text auf maxW kürzen (mit …)
+function fit(str, maxW) {
+  if (ctx.measureText(str).width <= maxW) return str;
+  while (str.length > 1 && ctx.measureText(str + '…').width > maxW) str = str.slice(0, -1);
+  return str.trimEnd() + '…';
 }

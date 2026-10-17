@@ -261,7 +261,7 @@ module.exports = {
     tin: {
       count: 110, minR: 28, maxR: 38, solid: 0.9, sight: 0.9, hard: true, tool: 1, gives: 'tin_ore', amount: [30, 55], respawn: 180,
       bonus: { tin_ore: 4 },
-      biomes: { grass: 0.1, forest: 0, rocky: 5, sand: 0.3, meadow: 0, urban: 0 },
+      biomes: { grass: 0.6, forest: 0.2, rocky: 5, sand: 1, meadow: 0.3, urban: 0 },
     },
     // Eisenerz: erst ab Bronze-Werkzeug, im Schmelzofen zu Eisenbarren
     iron: {
@@ -410,6 +410,11 @@ module.exports = {
     },
   },
   RESOURCE_MIN_SCALE: 0.55, // so klein wird eine fast leere Ressource
+  // Menge der Steine, Erze & Pflanzen nach Spielerzahl: count × (base + perPlayer × Spieler), höchstens max.
+  // 0 Spieler 50 %, 1 Spieler 60 %, 5 Spieler 100 %, ab 10 Spielern 150 % (mehr passt kaum in die Felsgebiete).
+  // Bäume (exclude) und Kisten bleiben fest.
+  // Alle interval Sekunden höchstens step × Zielmenge (mind. 2) pro Art dazu bzw. weg (weg nur unberührte, außer Sicht).
+  RESOURCE_SCALE: { base: 0.5, perPlayer: 0.1, max: 1.5, interval: 10, step: 0.05, exclude: ['tree', 'apple_tree'] },
 
   // Ausrüstung: jedes Teil ist ein eigenes Item (Stapelgröße 1) und passt in genau einen Slot.
   // stats werden auf die Grundwerte addiert; eine Waffe ersetzt damage/gather/attackSpeed/reach/tool der Faust.

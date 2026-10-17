@@ -102,7 +102,7 @@ class Game {
     this.updateUpkeep(dt);
     this.updateProjectiles(dt);
     this.updateGroundItems();
-    this.updateResources();
+    this.updateResources(dt);
     this.autosave(dt);
   }
 

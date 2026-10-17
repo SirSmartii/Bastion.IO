@@ -50,6 +50,7 @@ export function drawHud() {
     text(t.text, W / 2, toastY + i * 26, { size: 17, bold: true, align: 'center', color: '#fff' });
     ctx.globalAlpha = 1;
   });
+  drawFirstSpawnHint(toastY + toasts.length * 26 + 4);
   text('[Esc] Menü', 16, 26, { size: 12, color: 'rgba(255,255,255,0.45)' });
   drawStatus();
   drawHotbar();
@@ -97,6 +98,30 @@ export function deathButtons() {
   opts.push({ id: 0, label: '🎲 Irgendwo', wait: 0 });
   const w = 230, h = 40, gap = 12, total = opts.length * w + (opts.length - 1) * gap, x0 = Math.round(W / 2 - total / 2);
   return opts.map((o, i) => ({ ...o, rect: { x: x0 + i * (w + gap), y: Math.round(H / 2 + 50), w, h } }));
+}
+
+// ---------- Erster Spawn: Hinweis auf die Steuerung im Menü [Esc] ----------
+
+// Nur beim allerersten Spiel in diesem Browser; verschwindet nach HINT_TIME s oder sobald das Menü offen war
+const HINT_TIME = 25;
+let hintSeen = false, hintStart = null, hintPlayer = null;
+try { hintSeen = localStorage.getItem('bastion-help-seen') === '1'; } catch { /* privater Modus: jedes Mal zeigen */ }
+
+function drawFirstSpawnHint(y) {
+  if (hintSeen || me.dead) return;
+  if (hintPlayer !== myId) { hintPlayer = myId; hintStart = now; }
+  const age = now - hintStart;
+  if (age > HINT_TIME || ui.panel === 'esc') {
+    hintSeen = true;
+    try { localStorage.setItem('bastion-help-seen', '1'); } catch { /* egal */ }
+    return;
+  }
+  const w = 430, h = 64, x = W / 2 - w / 2;
+  ctx.globalAlpha = Math.min(1, age * 2, (HINT_TIME - age) / 1.5);
+  woodPanel(x, y, w, h, 10);
+  text('Willkommen! Alle Tasten & Hilfe findest du im Menü [Esc].', W / 2, y + 27, { size: 14, bold: true, align: 'center', color: CREAM });
+  text('Tipp: Lege einen Schlafsack (Baumenü [B]) – dort wachst du nach dem Tod auf.', W / 2, y + 47, { size: 12, align: 'center', color: 'rgba(243,226,192,0.75)' });
+  ctx.globalAlpha = 1;
 }
 
 // ---------- Oben: wie lange man schon lebt ----------

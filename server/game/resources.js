@@ -21,8 +21,12 @@ module.exports = {
       for (const [x, y] of city.ruins) this.statics.insert({ kind: 'ruin', x, y, hw: half, hh: half, br: half * 1.42 });
       for (const [x, y, type, angle] of city.crates) this.spawnResource(type, false, { x, y, angle });
     }
-    for (const [type, def] of Object.entries(C.RESOURCES)) {
-      for (let i = 0; i < def.count; i++) this.spawnResource(type, false);
+    // Steine, Erze & Pflanzen zunächst für einen leeren Server; mit Spielern wächst die Menge (balanceResources).
+    // Bäume zuerst (dichter Wald), danach seltene Arten, damit sie in den knappen Felsgebieten noch Platz finden.
+    const first = (t) => (C.RESOURCE_SCALE.exclude.includes(t) ? 0 : 1);
+    const order = Object.keys(C.RESOURCES).sort((a, b) => first(a) - first(b) || C.RESOURCES[a].count - C.RESOURCES[b].count);
+    for (const type of order) {
+      for (let i = 0; i < this.resourceTarget(type); i++) this.spawnResource(type, false);
     }
   },
 
@@ -109,14 +113,73 @@ module.exports = {
     this.events.push([Math.round(o.x), Math.round(o.y), 'deplete', 0, o.type]);
   },
 
-  // Fällige Ressourcen nachwachsen lassen; ist gerade kein Platz, in 5 s erneut versuchen
-  updateResources() {
+  // Fällige Ressourcen nachwachsen lassen (ist gerade kein Platz, in 5 s erneut) und die Menge an die Spielerzahl anpassen
+  updateResources(dt) {
+    this.resBalanceT = (this.resBalanceT || 0) - dt;
+    if (this.resBalanceT <= 0) {
+      this.resBalanceT = C.RESOURCE_SCALE.interval;
+      this.balanceResources();
+    }
     for (const pending of this.resPending) {
       if (this.now < pending.at) continue;
       if (this.spawnResource(pending.type, true, pending.pos)) pending.done = true;
       else pending.at = this.now + 5;
     }
     this.resPending = this.resPending.filter((pending) => !pending.done);
+  },
+
+  // ---------- Menge nach Spielerzahl ----------
+  //
+  // Steine, Erze und Pflanzen gibt es so viele, wie zur Zahl der Spieler passt (RESOURCE_SCALE): count ×
+  // Faktor. Bäume und Kisten bleiben fest. Alle interval Sekunden wird schrittweise (step) nachgefüllt (wie
+  // Nachwachsen: nicht neben Spielern) oder abgebaut – dann nur unberührte Ressourcen außer Sicht.
+
+  resourceFactor() {
+    const S = C.RESOURCE_SCALE, n = [...this.players.values()].length;
+    return Math.min(S.max, S.base + S.perPlayer * n);
+  },
+
+  scalesWithPlayers(type) {
+    const def = C.RESOURCES[type];
+    return !def.loot && def.count > 0 && !C.RESOURCE_SCALE.exclude.includes(type);
+  },
+
+  // Gewünschte Anzahl einer Ressource gerade jetzt
+  resourceTarget(type) {
+    const def = C.RESOURCES[type];
+    return this.scalesWithPlayers(type) ? Math.round(def.count * this.resourceFactor()) : def.count;
+  },
+
+  balanceResources() {
+    const S = C.RESOURCE_SCALE;
+    const have = {};
+    for (const r of this.resources) have[r.type] = (have[r.type] || 0) + 1;
+    for (const p of this.resPending) have[p.type] = (have[p.type] || 0) + 1; // wächst schon nach
+    for (const type of Object.keys(C.RESOURCES)) {
+      if (!this.scalesWithPlayers(type)) continue;
+      const target = this.resourceTarget(type), step = Math.max(2, Math.ceil(target * S.step));
+      let diff = target - (have[type] || 0);
+      // Zu wenige: nachfüllen (ein Platz findet sich nicht immer – dann mehr Versuche, höchstens 4 × step)
+      for (let added = 0, tries = 0; diff > 0 && added < step && tries < step * 4; tries++) {
+        if (this.spawnResource(type, true)) { added++; diff--; }
+      }
+      if (diff >= 0) continue;
+      // Zu viele: erst Nachwachsendes streichen, dann unberührte Ressourcen weit weg von allen Spielern
+      for (let i = this.resPending.length - 1; i >= 0 && diff < 0; i--) {
+        if (this.resPending[i].type === type) { this.resPending.splice(i, 1); diff++; }
+      }
+      let removed = 0;
+      for (const r of [...this.resources]) {
+        if (diff >= 0 || removed >= step) break;
+        if (r.type !== type || r.amount < r.maxAmount || this.nearPlayerOrBase(r.x, r.y) || this.inAnyView(r.x, r.y)) continue;
+        this.statics.remove(r);
+        this.resources.splice(this.resources.indexOf(r), 1);
+        this.resChanged.delete(r.id);
+        this.resRemoved.push(r.id);
+        diff++;
+        removed++;
+      }
+    }
   },
 
   // Format für den Client: [id, Typ, x, y, Grundradius, Restanteil, Winkel (nur wenn schräg)]

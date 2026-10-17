@@ -100,5 +100,6 @@ export const ui = {
   upgSel: null, // im Reiter "Verbessern" gewähltes Teil { src: 'inv' | 'eq', i }
   upgWard: false, // Schutzsiegel beim Verbessern benutzen
   spawnChoice: null, // im Todesbildschirm gewählter Schlafsack (0 = irgendwo)
+  escTab: 'overview', // Reiter im Menü [Esc]: overview | keys
   pendingTooltip: null, // wird nach allen Fenstern gezeichnet, damit nichts sie verdeckt
 };

@@ -64,6 +64,7 @@ und `DB_PATH` darauf zeigen lassen, z. B. `DB_PATH=/var/data/bastion.db`.
 - **Baumenü** (`B`): Gebäude nach Kategorien *Basis*, *Verteidigung* und *Wirtschaft*. Gewählt wird per Klick, platziert mit Linksklick (Ziehen baut Reihen). Der Bau-Button rechts neben der Hotbar wählt das zuletzt gebaute Gebäude
 - **Basis-Kern** platzieren → definiert Bauradius & Gebäude-Limit
 - Letzter Schlag auf eine Ressource gibt einen **Abbau-Bonus** (+10 Holz / +10 Stein / +5 Gold / +4 Eisenerz / +6 Kohle)
+- **Rohstoff-Menge nach Spielerzahl**: Steine, Erze und Pflanzen gibt es so viele, wie zur Zahl der Spieler passt – allein 60 %, ab 5 Spielern 100 %, ab 10 Spielern 150 % der Grundmenge (`RESOURCE_SCALE`). Alle 10 s wird schrittweise nachgefüllt (nie direkt neben Spielern) oder abgebaut (nur unberührte Ressourcen außer Sicht). Bäume und Kisten bleiben fest
 - **Material-Leiter**: Werkzeuge, Waffen und Rüstung gibt es aus Holz → Stein → **Kupfer** → **Bronze** → Eisen → **Stahl** → Diamant → Rubin (`MATERIALS` in der Config). Jede Stufe macht stärker (Faktor `mult` gegenüber Stein) und bestimmt, welche Erze ein Werkzeug abbauen kann:
   - 🟠 **Kupfererz** und ⚪ **Zinnerz** (Felsgebiet, Kupfer auch auf Wiesen) ab Stein-Werkzeug
   - 🟤 **Eisenerz** ab Bronze-Werkzeug
@@ -125,7 +126,8 @@ und `DB_PATH` darauf zeigen lassen, z. B. `DB_PATH=/var/data/bastion.db`.
 - **Chat** (`Enter`): Nachrichten erreichen nur Spieler in der Nähe (`CHAT.range`) und erscheinen als Sprechblase. `/t Nachricht` schreibt ans ganze Team, egal wie weit weg
 - **Teams** (`T`): Spieler in der Nähe einladen, Einladungen annehmen/ablehnen, Team verlassen; der Anführer kann Mitglieder entfernen (max. `TEAM.maxSize`). Teammitglieder verletzen sich nicht, gehen durch die Türen des anderen, nutzen seine Truhen, reparieren seine Gebäude und sehen sich (samt Basen) grün auf Minimap und Weltkarte
 - **HUD** im Werkbank-Stil: oben die Überlebenszeit seit dem letzten Tod (mit Rekord, wird gespeichert), unten links Leben, Ausdauer, Hunger und Durst als Segment-Leisten samt Werten und Basis-Zustand, unten die Hotbar
-- **Menü** (`Esc`): eigene Überlebenszeit und Rekord, Spielerliste (Bestenliste), Tastenübersicht, Ausloggen. `Esc` schließt zuerst offene Fenster und verlässt den Bau-Modus
+- **Hauptmenü** im Werkbank-Stil: Titelschild, Login-Brett mit Pergament, nächtliche Lichtung aus den Spielgrafiken. Die Steuerung steht dort nicht mehr, sondern im Spiel unter `Esc`
+- **Menü** (`Esc`) mit zwei Reitern: *Übersicht* (eigene Überlebenszeit und Rekord, Spielerliste, Konto) und *Steuerung* (alle Tasten nach Themen). Unten Weiterspielen & Ausloggen. `Esc` schließt zuerst offene Fenster und verlässt den Bau-Modus. Beim allerersten Spiel weist ein Schild 25 s lang darauf hin
 - **Minimap**: runder Kompass oben rechts, Norden oben, Radar um den Spieler. Rot = feindlich, Rosa = friedliches Tier, Gelb = fremder Spieler, den du gerade sehen kannst, Grün = Team
 - **Weltkarte** (`M`): ganze Welt mit Biomen, Seen, Wegen, Städten, deiner Basis und Planquadraten A–J / 1–10. Fremde Spieler sind dort nicht zu sehen, nur dein Team
 - Das Baugitter erscheint nur beim Platzieren von Gebäuden rund um die Maus
