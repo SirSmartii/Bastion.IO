@@ -105,6 +105,22 @@ h1 {
 h1 span { color: var(--ember); }
 .tagline { margin: 4px 0 0; color: rgba(243, 226, 192, 0.75); font-size: 14px; letter-spacing: 0.5px; }
 
+/* Sprachauswahl: drei kleine Holzknöpfe, die gewählte Sprache auf Pergament */
+.langs { display: flex; justify-content: center; gap: 8px; margin: -4px 0 -2px; }
+.langs button {
+  padding: 5px 14px;
+  font: 700 13px 'Segoe UI', system-ui, sans-serif;
+  color: var(--cream);
+  background: linear-gradient(180deg, var(--wood-light), var(--wood));
+  border: 2px solid var(--wood-dark);
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+.langs button:hover { filter: brightness(1.15); }
+.langs button.active { color: var(--ink); background: linear-gradient(180deg, #efe3c5, var(--parchment)); border-color: var(--parchment-dark); }
+
 /* Login-Brett: Holzrahmen, darin Pergament */
 .plank {
   position: relative;

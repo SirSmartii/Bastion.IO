@@ -26,7 +26,7 @@ module.exports = {
     const s = this.structures.get(id);
     if (!s || !s.items) return;
     const what = CONTAINER_NAMES[s.type] || 'Dieser Behälter';
-    if (!this.allied(p, s.owner)) return this.msg(p, `${what} gehört nicht dir oder deinem Team.`);
+    if (!this.allied(p, s.owner)) return this.msg(p, '{what} gehört nicht dir oder deinem Team.', { what });
     if (!this.canUseChest(p, s)) return this.msg(p, 'Geh näher heran.');
     p.chest = s.id;
   },
@@ -100,7 +100,7 @@ module.exports = {
     if (!s || !C.STRUCTURES[s.type].modes || !this.canUseChest(p, s)) return;
     const m = C.STRUCTURES[s.type].modes.find((x) => x.id === mode);
     if (!m) return;
-    if (m.level && s.level + 1 < m.level) return this.msg(p, `${m.name} braucht ${C.STRUCTURES[s.type].name} Lv ${m.level} – upgraden mit [E].`);
+    if (m.level && s.level + 1 < m.level) return this.msg(p, '{mode} braucht {name} Lv {n} – upgraden mit [E].', { mode: m.name, name: C.STRUCTURES[s.type].name, n: m.level });
     s.mode = m.id;
     s.smeltT = 0;
   },

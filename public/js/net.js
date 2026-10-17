@@ -15,6 +15,7 @@ import { resize } from './main.js';
 import { netMessage, setServerStats } from './perf.js';
 import { onServerTick, addSample, resetInterpolation } from './interp.js';
 import { reconcile, resetPrediction } from './predict.js';
+import { t, localizeConfig } from './i18n.js';
 
 let ws = null;
 let loggingOut = false;
@@ -51,8 +52,8 @@ function connect(firstMessage) {
     ws = null;
     resetGame();
     showMenu();
-    if (loggingOut) showMenuMessage(account ? 'Ausgeloggt – dein Spielstand ist gespeichert.' : 'Ausgeloggt.', !!account);
-    else showMenuMessage(wasPlaying ? 'Verbindung getrennt.' : 'Server nicht erreichbar.');
+    if (loggingOut) showMenuMessage(t(account ? 'Ausgeloggt – dein Spielstand ist gespeichert.' : 'Ausgeloggt.'), !!account);
+    else showMenuMessage(t(wasPlaying ? 'Verbindung getrennt.' : 'Server nicht erreichbar.'));
     loggingOut = false;
   };
 }
@@ -74,15 +75,15 @@ function resetGame() {
 
 function onMessage(m) {
   switch (m.t) {
-    case 'auth': showMenuMessage(m.err); break; // Login-Fehler
+    case 'auth': showMenuMessage(t(m.err, m.v)); break; // Login-Fehler
     case 'init':
-      setSession(m.cfg, m.id, m.acc);
+      setSession(localizeConfig(m.cfg), m.id, m.acc);
       setResources(m.res);
       setupWorld(m.world);
       resize();
       hideMenu();
       break;
-    case 'm': toast(m.text); break;
+    case 'm': toast(t(m.text, m.v)); break;
     case 'c': addChatMessage(m); break;
     case 's': applyState(m); break;
   }
@@ -167,16 +168,16 @@ function handleEvent(e) {
     case 'lvl':
       burst(x, y, '#ffd76a', 30, 260);
       burst(x, y, '#fff3b8', 14, 160);
-      floatText(x, y - 60, `Level ${e[3]}!`, '#ffd76a', { big: true, life: 1.8 });
+      floatText(x, y - 60, t('Level {n}!', { n: e[3] }), '#ffd76a', { big: true, life: 1.8 });
       break;
     case 'boom': burst(x, y, '#7a6650', 22, 220); break;
     case 'burn': burst(x, y, '#5a5a5a', 18, 120); burst(x, y, '#ff8a3a', 8, 160); break; // im Morgenlicht zerfallen
     case 'fix': burst(x, y, '#7fd36a', 6, 90); break;
-    case 'up': burst(x, y, '#ffd84a', 18, 200); floatText(x, y - 30, 'Upgrade!', '#ffd84a'); break;
+    case 'up': burst(x, y, '#ffd84a', 18, 200); floatText(x, y - 30, t('Upgrade!'), '#ffd84a'); break;
     case 'mine': if (e[4] === myId) floatText(x, y - 20, `+${e[3]} 🪙`, '#ffd84a'); break;
     case 'pick': if (e[5] === myId) floatText(x, y - 20, `+${e[3]} ${RES_ICON[e[4]]}`, '#9fe870'); break;
     case 'bonus':
-      if (e[5] === myId) floatText(x, y - 50, `Abbau-Bonus! ${Object.entries(e[4]).map(([item, n]) => `+${n} ${RES_ICON[item]}`).join(' ')}`, '#ffd76a');
+      if (e[5] === myId) floatText(x, y - 50, `${t('Abbau-Bonus!')} ${Object.entries(e[4]).map(([item, n]) => `+${n} ${RES_ICON[item]}`).join(' ')}`, '#ffd76a');
       break;
     case 'shot': flashes.push({ x, y, a: e[3], t: now }); burst(x, y, '#ffd25a', 5, 160); break;
     case 'deplete':

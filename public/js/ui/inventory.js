@@ -7,6 +7,7 @@ import { fmtCost } from './format.js';
 import { RES_ICON } from '../constants.js';
 import { itemTooltip } from './tooltip.js';
 import { charLayout } from './character.js';
+import { t, dec } from '../i18n.js';
 
 const SLOT = 60, GAP = 8, PAD = 18, COLS = 5;
 
@@ -93,21 +94,21 @@ function drawSlots(slots, box, container, hoverSlot) {
 export function drawInventory() {
   const { panel: P, slots } = invLayout();
   rrect(P.x, P.y, P.w, P.h, 14, 'rgba(18,24,14,0.94)', '#4b5d38', 3);
-  text('Inventar', P.x + 18, P.y + 27, { size: 18, bold: true, color: '#f2d27a' });
-  text(`${me.inv.filter(Boolean).length}/${slots.length} Slots · [Tab] schließen`, P.x + P.w - 18, P.y + 27, { size: 13, color: '#a8b597', align: 'right' });
+  text(t('Inventar'), P.x + 18, P.y + 27, { size: 18, bold: true, color: '#f2d27a' });
+  text(t('{n}/{max} Slots · [Tab] schließen', { n: me.inv.filter(Boolean).length, max: slots.length }), P.x + P.w - 18, P.y + 27, { size: 13, color: '#a8b597', align: 'right' });
   const hoverSlot = invSlotAt(mouse.x, mouse.y);
   drawSlots(slots, me.inv, 0, hoverSlot);
 
   const chestType = me.ch && structs.get(me.ch[0]) ? structs.get(me.ch[0]).type : null;
   const target = me.ch ? (me.ch[2] ? 'ins Kern-Lager' : chestType === 'campfire' ? 'ins Lagerfeuer' : chestType === 'tanner' ? 'ins Gerbgestell' : me.ch[3] ? 'in den Ofen' : 'in die Truhe') : null;
-  const hint = target ? `Rechtsklick: Stapel ${target}` : 'Ziehen: sortieren / droppen · Shift: Hälfte · Rechtsklick: nutzen';
+  const hint = target ? t('Rechtsklick: Stapel {target}', { target }) : t('Ziehen: sortieren / droppen · Shift: Hälfte · Rechtsklick: nutzen');
   text(hint, P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#8f9c80', align: 'center' });
 
   if (ui.drag || hoverSlot < 0 || !me.inv[hoverSlot]) return;
   const [item, n, d] = me.inv[hoverSlot];
-  if (target) itemTooltip(item, [[`× ${n} · Rechtsklick: ${target}`, '#cfd8c0']], d);
-  else if (cfg.EQUIPMENT[item]) itemTooltip(item, [['Rechtsklick: ausrüsten', '#a8b597']], d);
-  else if (cfg.ITEMS.food[item]) itemTooltip(item, [[`× ${n} · Rechtsklick: verbrauchen`, '#cfd8c0'], [foodText(item), '#9fe870']]);
+  if (target) itemTooltip(item, [[t('× {n} · Rechtsklick: {target}', { n, target }), '#cfd8c0']], d);
+  else if (cfg.EQUIPMENT[item]) itemTooltip(item, [[t('Rechtsklick: ausrüsten'), '#a8b597']], d);
+  else if (cfg.ITEMS.food[item]) itemTooltip(item, [[t('× {n} · Rechtsklick: verbrauchen', { n }), '#cfd8c0'], [foodText(item), '#9fe870']]);
   else itemTooltip(item, [[`× ${n}  (max ${stackMax(item)})`, '#cfd8c0']]);
 }
 
@@ -118,28 +119,28 @@ export function drawChest() {
   // Bei Team-Truhen den Besitzer nennen
   const owner = s && s.owner !== myId && me.team ? me.team.m.find((m) => m[0] === s.owner) : null;
   const campfire = s && s.type === 'campfire';
-  const title = upkeep ? '🏰 Kern-Lager' : campfire ? '🔥 Lagerfeuer' : s && s.type === 'tanner' ? '🟫 Gerbgestell' : furnace ? '🔥 Schmelzofen' : '📦 Truhe';
-  text(owner ? `${title} von ${owner[1]}` : title, P.x + 18, P.y + 27, { size: 18, bold: true, color: '#f2d27a' });
-  text(`${box.filter(Boolean).length}/${box.length} · [F] schließen`, P.x + P.w - 18, P.y + 27, { size: 13, color: '#c2ab88', align: 'right' });
+  const title = t(upkeep ? '🏰 Kern-Lager' : campfire ? '🔥 Lagerfeuer' : s && s.type === 'tanner' ? '🟫 Gerbgestell' : furnace ? '🔥 Schmelzofen' : '📦 Truhe');
+  text(owner ? t('{title} von {name}', { title, name: owner[1] }) : title, P.x + 18, P.y + 27, { size: 18, bold: true, color: '#f2d27a' });
+  text(t('{n}/{max} · [F] schließen', { n: box.filter(Boolean).length, max: box.length }), P.x + P.w - 18, P.y + 27, { size: 13, color: '#c2ab88', align: 'right' });
   if (upkeep) drawUpkeepInfo(upkeep, P.x + 18, P.y + 52, P.w - 36);
   if (furnace && campfire) drawCampfireInfo(furnace, P.x + 18, P.y + 52, P.w - 36);
   else if (furnace) drawFurnaceInfo(furnace, P.x + 18, P.y + 52, P.w - 36);
   const hoverSlot = chestSlotAt(mouse.x, mouse.y);
   drawSlots(slots, box, 1, hoverSlot);
-  text('Ziehen: einlagern / entnehmen · Rechtsklick: ganzer Stapel', P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#a8957a', align: 'center' });
+  text(t('Ziehen: einlagern / entnehmen · Rechtsklick: ganzer Stapel'), P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#a8957a', align: 'center' });
   if (!ui.drag && hoverSlot >= 0 && box[hoverSlot]) {
     const [item, n, d] = box[hoverSlot];
-    itemTooltip(item, [[cfg.EQUIPMENT[item] ? 'Rechtsklick: ins Inventar' : `× ${n} · Rechtsklick: ins Inventar`, '#cfd8c0']], d);
+    itemTooltip(item, [[cfg.EQUIPMENT[item] ? t('Rechtsklick: ins Inventar') : t('× {n} · Rechtsklick: ins Inventar', { n }), '#cfd8c0']], d);
   }
 }
 
 // Unterhalt { c: Kosten, t: Sekunden bis zur Zahlung, n: gedeckte Zahlungen, d: verfällt }
 function drawUpkeepInfo(up, x, y, w) {
   rrect(x - 6, y - 16, w + 12, 66, 8, up.d ? 'rgba(140,30,20,0.45)' : 'rgba(0,0,0,0.3)', up.d ? '#e05555' : 'rgba(255,255,255,0.08)', 1.5);
-  text(`Unterhalt alle ${cfg.UPKEEP.interval / 60} min: ${fmtCost(up.c) || '–'}`, x, y, { size: 13, bold: true, color: '#f2e2c4' });
-  text(`Nächste Zahlung in ${fmtClock(up.t)} · repariert ${Math.round(cfg.UPKEEP.repair * 100)} % HP`, x, y + 20, { size: 12, color: '#c2ab88' });
-  if (up.d) text('⚠ Vorrat leer – die Basis verfällt! Holz/Stein/Gold einlagern.', x, y + 40, { size: 12, bold: true, color: '#ff8a7a' });
-  else text(`Vorrat reicht für ${up.n >= 999 ? '∞' : up.n} Zahlung(en) · ${supplyText(up)}`, x, y + 40, { size: 12, color: up.n < 2 ? '#ffb36a' : '#9fe870' });
+  text(t('Unterhalt alle {n} min: {cost}', { n: cfg.UPKEEP.interval / 60, cost: fmtCost(up.c) || '–' }), x, y, { size: 13, bold: true, color: '#f2e2c4' });
+  text(t('Nächste Zahlung in {time} · repariert {n} % HP', { time: fmtClock(up.t), n: Math.round(cfg.UPKEEP.repair * 100) }), x, y + 20, { size: 12, color: '#c2ab88' });
+  if (up.d) text(t('⚠ Vorrat leer – die Basis verfällt! Holz/Stein/Gold einlagern.'), x, y + 40, { size: 12, bold: true, color: '#ff8a7a' });
+  else text(t('Vorrat reicht für {n} Zahlung(en) · {supply}', { n: up.n >= 999 ? '∞' : up.n, supply: supplyText(up) }), x, y + 40, { size: 12, color: up.n < 2 ? '#ffb36a' : '#9fe870' });
 }
 
 // Ofen & Gerbgestell { a: läuft, p: Fortschritt, t: Sekunden pro Durchgang, n: wie oft das Material noch reicht,
@@ -150,14 +151,14 @@ function drawFurnaceInfo(f, x, y, w) {
   const mode = def.modes.find((m) => m.id === f.m) || def.modes[0];
   rrect(x - 6, y - 16, w + 12, 48, 8, 'rgba(0,0,0,0.3)', f.a ? '#e8913a' : 'rgba(255,255,255,0.08)', 1.5);
   const recipes = mode.recipes.map((r) => `${fmtCost(r.cost)} → ${r.n || 1}${RES_ICON[r.out]}`).join('   ');
-  text(`${recipes}  ·  ${String(f.t).replace('.', ',')} s`, x, y, { size: 12, bold: true, color: '#f2e2c4' });
+  text(`${recipes}  ·  ${dec(f.t)} s`, x, y, { size: 12, bold: true, color: '#f2e2c4' });
   if (f.a) {
     rrect(x, y + 10, w * 0.55, 10, 4, 'rgba(0,0,0,0.5)');
     rrect(x, y + 10, Math.max(4, w * 0.55 * f.p), 10, 4, '#ff9a3a');
-    text(`läuft · noch ${f.n}×`, x + w, y + 19, { size: 12, color: '#ffc27a', align: 'right' });
+    text(t('läuft · noch {n}×', { n: f.n }), x + w, y + 19, { size: 12, color: '#ffc27a', align: 'right' });
   } else {
     const need = [...new Set(mode.recipes.flatMap((r) => Object.keys(r.cost)))].map((i) => cfg.ITEMS.names[i]).join(', ');
-    text(f.n > 0 ? 'Kein Platz für das Ergebnis – entnimm etwas.' : `Aus – lege ${need} hinein.`, x, y + 20, { size: 12, color: '#c2ab88' });
+    text(f.n > 0 ? t('Kein Platz für das Ergebnis – entnimm etwas.') : t('Aus – lege {items} hinein.', { items: need }), x, y + 20, { size: 12, color: '#c2ab88' });
   }
   for (const b of modeButtons()) {
     const active = b.id === mode.id, locked = b.level && s.level + 1 < b.level, hover = inRect(mouse.x, mouse.y, b.rect);
@@ -179,35 +180,35 @@ function drawCampfireInfo(f, x, y, w) {
   const def = cfg.STRUCTURES.campfire;
   rrect(x - 6, y - 16, w + 12, 48, 8, 'rgba(0,0,0,0.3)', f.a ? '#e8913a' : 'rgba(255,255,255,0.08)', 1.5);
   const cooks = Object.entries(def.cook).map(([raw, done]) => `${RES_ICON[raw]}→${RES_ICON[done]}`).join(' ');
-  text(`${cooks}  ·  alle ${f.t} s`, x, y, { size: 13, bold: true, color: "#f2e2c4" });
+  text(t('{cooks}  ·  alle {n} s', { cooks, n: dec(f.t) }), x, y, { size: 13, bold: true, color: "#f2e2c4" });
   if (!f.a) {
-    text('Aus – lege Holz hinein. Brennend verscheucht es Tiere.', x, y + 20, { size: 12, color: '#c2ab88' });
+    text(t('Aus – lege Holz hinein. Brennend verscheucht es Tiere.'), x, y + 20, { size: 12, color: '#c2ab88' });
     return;
   }
   if (f.n) {
     rrect(x, y + 10, w * 0.5, 10, 4, 'rgba(0,0,0,0.5)');
     rrect(x, y + 10, Math.max(4, w * 0.5 * f.p), 10, 4, '#ff9a3a');
   }
-  text(`${f.n ? `brät · noch ${f.n}` : 'brennt'} · Holz für ${fmtClock(f.f)}`, x + w, y + 19, { size: 12, color: '#ffc27a', align: 'right' });
+  text(t(f.n ? 'brät · noch {n} · Holz für {time}' : 'brennt · Holz für {time}', { n: f.n, time: fmtClock(f.f) }), x + w, y + 19, { size: 12, color: '#ffc27a', align: 'right' });
 }
 
 // Was ein Lebensmittel bringt, z. B. "+35 🍖 Hunger · +10 ❤ Leben"
 export function foodText(item) {
   const def = cfg.ITEMS.food[item] || {}, parts = [];
-  if (def.food) parts.push(`+${def.food} 🍖 Hunger`);
-  if (def.water) parts.push(`+${def.water} 💧 Durst`);
-  if (def.hp) parts.push(`${def.hp > 0 ? '+' : ''}${def.hp} ❤ Leben`);
-  if (def.buff) parts.push(def.buff.regen ? `${def.buff.regen}× Regeneration für ${def.buff.t} s` : `+${Math.round((def.buff.staminaRegen - 1) * 100)} % Ausdauer-Erholung für ${def.buff.t} s`);
+  if (def.food) parts.push(t('+{n} 🍖 Hunger', { n: def.food }));
+  if (def.water) parts.push(t('+{n} 💧 Durst', { n: def.water }));
+  if (def.hp) parts.push(t('{n} ❤ Leben', { n: `${def.hp > 0 ? '+' : ''}${def.hp}` }));
+  if (def.buff) parts.push(def.buff.regen ? t('{n}× Regeneration für {s} s', { n: def.buff.regen, s: def.buff.t }) : t('+{n} % Ausdauer-Erholung für {s} s', { n: Math.round((def.buff.staminaRegen - 1) * 100), s: def.buff.t }));
   const cooked = cfg.STRUCTURES.campfire.cook[item];
-  if (cooked) parts.push(`am Lagerfeuer → ${cfg.ITEMS.names[cooked]}`);
+  if (cooked) parts.push(t('am Lagerfeuer → {item}', { item: cfg.ITEMS.names[cooked] }));
   return parts.join(' · ');
 }
 
 // Wie lange die Basis noch versorgt ist (bis zur ersten Zahlung, die nicht mehr klappt)
 export function supplyText(up) {
-  if (up.n >= 999) return 'kein Unterhalt nötig';
+  if (up.n >= 999) return t('kein Unterhalt nötig');
   const sec = up.t + up.n * cfg.UPKEEP.interval;
-  return sec >= 3600 ? `~${(sec / 3600).toFixed(1).replace('.', ',')} h versorgt` : `~${Math.max(1, Math.round(sec / 60))} min versorgt`;
+  return sec >= 3600 ? t('~{n} h versorgt', { n: dec((sec / 3600).toFixed(1)) }) : t('~{n} min versorgt', { n: Math.max(1, Math.round(sec / 60)) });
 }
 
 // Das gezogene Item klebt an der Maus
@@ -217,6 +218,6 @@ export function drawDragged() {
   drawItemIcon(s[0], mouse.x, mouse.y, 42);
   if (!cfg.EQUIPMENT[s[0]]) text(String(d.half ? Math.ceil(s[1] / 2) : s[1]), mouse.x + 18, mouse.y + 22, { size: 14, bold: true });
   if (!overItemWindows(mouse.x, mouse.y) && !d.c) {
-    text('Loslassen zum Droppen', mouse.x, mouse.y - 30, { size: 13, bold: true, align: 'center', color: '#ffd76a' });
+    text(t('Loslassen zum Droppen'), mouse.x, mouse.y - 30, { size: 13, bold: true, align: 'center', color: '#ffd76a' });
   }
 }

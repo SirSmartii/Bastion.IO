@@ -8,6 +8,7 @@ import { inRect } from './draw/primitives.js';
 import { togglePerf, togglePerfOption } from './perf.js';
 import { resize } from './main.js';
 import { toast } from './effects.js';
+import { t } from './i18n.js';
 import { send } from './net.js';
 import { nextInput } from './predict.js';
 import { menuHasFocus } from './menu.js';
@@ -94,7 +95,7 @@ function interact() {
   if (container && container.d < forgeDist) openContainer(container.s);
   else if (forgeDist < Infinity) togglePanel('forge');
   else if (nearWater()) send({ t: 'drink' });
-  else toast(me.forge ? 'Geh näher an deine Schmiede, eine Truhe oder einen See.' : 'Keine Schmiede, Truhe oder See in der Nähe.');
+  else toast(t(me.forge ? 'Geh näher an deine Schmiede, eine Truhe oder einen See.' : 'Keine Schmiede, Truhe oder See in der Nähe.'));
 }
 
 // Kern abreißen nur mit zweitem Druck, weil dabei die ganze Basis verschwindet
@@ -103,7 +104,7 @@ function demolishHovered() {
   if (!hovered || hovered.owner !== myId) return;
   if (hovered.type === 'core' && now - coreDemolishT > 2) {
     coreDemolishT = now;
-    toast('Nochmal [X]: Kern abreißen zerstört die GANZE Basis!');
+    toast(t('Nochmal [X]: Kern abreißen zerstört die GANZE Basis!'));
     return;
   }
   send({ t: 'x', id: hovered.id });
@@ -230,7 +231,7 @@ function endDrag(sx, sy) {
   if (chestTarget >= 0 || d.c) {
     const toBox = chestTarget >= 0 ? 1 : invTarget >= 0 ? 0 : -1;
     if (toBox < 0) {
-      if (d.c && !overWindow) toast('Erst ins Inventar ziehen, dann droppen.');
+      if (d.c && !overWindow) toast(t('Erst ins Inventar ziehen, dann droppen.'));
       return;
     }
     const to = toBox ? chestTarget : invTarget;
@@ -247,7 +248,7 @@ function endDrag(sx, sy) {
   } else if (eqTarget) {
     const def = cfg.EQUIPMENT[stack[0]];
     if (def && def.slot === eqTarget) send({ t: 'equip', slot: d.slot });
-    else toast('Das passt nicht in diesen Slot.');
+    else toast(t('Das passt nicht in diesen Slot.'));
   } else if (!overWindow) {
     // Aus dem Fenster gezogen: an der Mausposition in die Welt werfen
     send({ t: 'drop', slot: d.slot, n: amount, x: world.x, y: world.y });

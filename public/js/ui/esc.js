@@ -6,6 +6,7 @@ import { text, inRect, rrect } from '../draw/primitives.js';
 import { logout } from '../net.js';
 import { woodPanel, parchment, woodButton, CREAM, INK, INK_LIGHT, PARCHMENT, PARCHMENT_DARK, WOOD_DARK } from './theme.js';
 import { fmtDuration } from './hud.js';
+import { t } from '../i18n.js';
 
 const WIDTH = 520, PAD = 20, ROW = 22, KEY_ROW = 21;
 
@@ -14,7 +15,7 @@ export const whileDead = true;
 
 const TABS = [{ id: 'overview', name: 'Übersicht' }, { id: 'keys', name: 'Steuerung' }];
 
-// Tastenhilfe: [Gruppe, [[Tasten, Beschreibung], …]]
+// Tastenhilfe: [Gruppe, [[Tasten, Beschreibung], …]] – übersetzt wird beim Zeichnen (Tasten nur, wenn sie Wörter sind)
 const CONTROLS = [
   ['Bewegen & Kämpfen', [
     [['W', 'A', 'S', 'D'], 'Bewegen'],
@@ -52,7 +53,7 @@ const CONTROLS = [
 // Spielerliste: Bestenliste vom Server (Top 10); wer nicht darin steht, sieht sich selbst darunter
 function rows() {
   const list = leaderboard.map(([id, name, score], i) => ({ rank: i + 1, name, score, mine: id === myId }));
-  if (!list.some((r) => r.mine)) list.push({ rank: '–', name: 'Du', score: me.score, mine: true });
+  if (!list.some((r) => r.mine)) list.push({ rank: '–', name: t('Du'), score: me.score, mine: true });
   return list;
 }
 
@@ -64,13 +65,13 @@ function contentHeight(tab, list) {
 }
 
 export function layout() {
-  const tab = TABS.some((t) => t.id === ui.escTab) ? ui.escTab : 'overview', list = rows();
+  const tab = TABS.some((tb) => tb.id === ui.escTab) ? ui.escTab : 'overview', list = rows();
   const top = 92, h = top + contentHeight(tab, list) + 56;
   const x = Math.round(W / 2 - WIDTH / 2), y = Math.round(Math.max(20, H / 2 - h / 2));
   const bw = (WIDTH - PAD * 2 - 12) / 2, by = y + h - 50, tw = (WIDTH - PAD * 2 - 8) / TABS.length;
   return {
     panel: { x, y, w: WIDTH, h }, list, tab, top: y + top,
-    tabs: TABS.map((t, i) => ({ ...t, rect: { x: x + PAD + i * (tw + 8), y: y + 48, w: tw, h: 30 } })),
+    tabs: TABS.map((tb, i) => ({ ...tb, name: t(tb.name), rect: { x: x + PAD + i * (tw + 8), y: y + 48, w: tw, h: 30 } })),
     resume: { x: x + PAD, y: by, w: bw, h: 34 },
     logout: { x: x + PAD + bw + 12, y: by, w: bw, h: 34 },
   };
@@ -78,7 +79,7 @@ export function layout() {
 
 export function onClick(x, y) {
   const L = layout();
-  const tab = L.tabs.find((t) => inRect(x, y, t.rect));
+  const tab = L.tabs.find((tb) => inRect(x, y, tb.rect));
   if (tab) ui.escTab = tab.id;
   else if (inRect(x, y, L.logout)) logout();
   else if (inRect(x, y, L.resume) || !inRect(x, y, L.panel)) ui.panel = null;
@@ -87,18 +88,18 @@ export function onClick(x, y) {
 export function draw() {
   const L = layout(), { x, y, w } = L.panel;
   woodPanel(x, y, w, L.panel.h, 12);
-  text('Menü', x + PAD, y + 34, { size: 20, bold: true, color: CREAM });
-  text('[Esc] schließen', x + w - PAD, y + 34, { size: 12, color: 'rgba(243,226,192,0.6)', align: 'right' });
-  for (const t of L.tabs) {
-    const active = t.id === L.tab, hover = inRect(mouse.x, mouse.y, t.rect);
-    rrect(t.rect.x, t.rect.y, t.rect.w, t.rect.h, 6, active ? PARCHMENT : hover ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.25)',
+  text(t('Menü'), x + PAD, y + 34, { size: 20, bold: true, color: CREAM });
+  text(t('[Esc] schließen'), x + w - PAD, y + 34, { size: 12, color: 'rgba(243,226,192,0.6)', align: 'right' });
+  for (const tb of L.tabs) {
+    const active = tb.id === L.tab, hover = inRect(mouse.x, mouse.y, tb.rect);
+    rrect(tb.rect.x, tb.rect.y, tb.rect.w, tb.rect.h, 6, active ? PARCHMENT : hover ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.25)',
       active ? PARCHMENT_DARK : 'rgba(255,220,160,0.18)', 1.5);
-    text(t.name, t.rect.x + t.rect.w / 2, t.rect.y + 20, { size: 13, bold: true, align: 'center', color: active ? INK : CREAM });
+    text(tb.name, tb.rect.x + tb.rect.w / 2, tb.rect.y + 20, { size: 13, bold: true, align: 'center', color: active ? INK : CREAM });
   }
   if (L.tab === 'overview') drawOverview(L);
   else drawControls(L);
-  woodButton(L.resume, 'Weiterspielen', inRect(mouse.x, mouse.y, L.resume), '#4f6b2a');
-  woodButton(L.logout, '⏻ Ausloggen', inRect(mouse.x, mouse.y, L.logout), '#8a3a24');
+  woodButton(L.resume, t('Weiterspielen'), inRect(mouse.x, mouse.y, L.resume), '#4f6b2a');
+  woodButton(L.logout, t('⏻ Ausloggen'), inRect(mouse.x, mouse.y, L.logout), '#8a3a24');
 }
 
 function drawOverview(L) {
@@ -107,13 +108,13 @@ function drawOverview(L) {
   let cy = L.top;
   parchment(left, cy, w - PAD * 2, 56);
   const alive = me.dead ? 0 : me.al || 0;
-  text(`⏳ ${fmtDuration(alive)} überlebt`, left + 12, cy + 22, { size: 15, bold: true, color: INK });
-  text(`Rekord ${fmtDuration(me.ab || 0)}`, right - 12, cy + 22, { size: 13, color: INK_LIGHT, align: 'right' });
-  text(`🏆 ${me.score} Punkte   💀 ${me.kills} Kills   Lv ${me.lvl}`, left + 12, cy + 44, { size: 13, color: INK_LIGHT });
+  text(t('⏳ {time} überlebt', { time: fmtDuration(alive) }), left + 12, cy + 22, { size: 15, bold: true, color: INK });
+  text(t('Rekord {time}', { time: fmtDuration(me.ab || 0) }), right - 12, cy + 22, { size: 13, color: INK_LIGHT, align: 'right' });
+  text(t('🏆 {score} Punkte   💀 {kills} Kills   Lv {lv}', { score: me.score, kills: me.kills, lv: me.lvl }), left + 12, cy + 44, { size: 13, color: INK_LIGHT });
 
   // Spielerliste
   cy += 82;
-  text(`Spieler · ${online} online`, left, cy, { size: 14, bold: true, color: CREAM });
+  text(t('Spieler · {n} online', { n: online }), left, cy, { size: 14, bold: true, color: CREAM });
   cy += 10;
   parchment(left, cy, w - PAD * 2, L.list.length * ROW + 10);
   L.list.forEach((r, i) => {
@@ -128,7 +129,7 @@ function drawOverview(L) {
   });
 
   cy += L.list.length * ROW + 34;
-  text(account ? `👤 ${account} · Fortschritt wird gespeichert` : '👤 Gast · Fortschritt wird nicht gespeichert', left, cy,
+  text(account ? t('👤 {name} · Fortschritt wird gespeichert', { name: account }) : t('👤 Gast · Fortschritt wird nicht gespeichert'), left, cy,
     { size: 12, color: account ? '#b6e08a' : '#e0b0a0' });
 }
 
@@ -139,15 +140,15 @@ function drawControls(L) {
     const cx = x + PAD + c * (colW + 12);
     let cy = L.top;
     for (const [title, keys] of groups) {
-      text(title, cx, cy + 14, { size: 13, bold: true, color: CREAM });
+      text(t(title), cx, cy + 14, { size: 13, bold: true, color: CREAM });
       cy += 22;
       parchment(cx, cy, colW, keys.length * KEY_ROW + 6);
       keys.forEach(([caps, label], i) => {
         const ry = cy + 4 + i * KEY_ROW;
         let kx = cx + 8;
-        for (const cap of caps) kx = keyCap(cap, kx, ry + 2) + 4;
+        for (const cap of caps) kx = keyCap(cap.length > 3 ? t(cap) : cap, kx, ry + 2) + 4;
         ctx.font = '12px Segoe UI, sans-serif';
-        text(fit(label, cx + colW - 8 - Math.max(kx, cx + 62)), Math.max(kx, cx + 62), ry + 15, { size: 12, color: INK });
+        text(fit(t(label), cx + colW - 8 - Math.max(kx, cx + 62)), Math.max(kx, cx + 62), ry + 15, { size: 12, color: INK });
       });
       cy += keys.length * KEY_ROW + 14;
     }

@@ -6,6 +6,7 @@ import { rrect, text, inRect } from '../draw/primitives.js';
 import { drawItemIcon, itemName, gearBadge } from '../draw/items.js';
 import { itemTooltip, tooltipLines } from './tooltip.js';
 import { dragStack } from './inventory.js';
+import { t } from '../i18n.js';
 
 const PRACTICE_ROW = 52, practiceHeight = () => Math.ceil(cfg.PRACTICE.list.length / 2) * PRACTICE_ROW + 44;
 
@@ -35,9 +36,9 @@ export function eqSlotAt(sx, sy) {
 export function drawCharacter() {
   const { panel: P, slots } = charLayout();
   rrect(P.x, P.y, P.w, P.h, 14, 'rgba(18,24,14,0.95)', '#4b5d38', 3);
-  text('🧍 Charakter', P.x + 18, P.y + 29, { size: 18, bold: true, color: '#f2d27a' });
-  text(`Level ${me.lvl} · ${me.xp}/${me.xpNext} EP${me.sp ? ` · ${me.sp} Skillpunkt(e) [K]` : ''}`, P.x + 160, P.y + 29, { size: 12, color: me.sp ? '#ffd76a' : '#a8b597' });
-  text('[C] schließen', P.x + P.w - 18, P.y + 29, { size: 12, color: '#a8b597', align: 'right' });
+  text(t('🧍 Charakter'), P.x + 18, P.y + 29, { size: 18, bold: true, color: '#f2d27a' });
+  text(t('Level {lv} · {n}/{max} EP', { lv: me.lvl, n: me.xp, max: me.xpNext }) + (me.sp ? t(' · {n} Skillpunkt(e) [K]', { n: me.sp }) : ''), P.x + 160, P.y + 29, { size: 12, color: me.sp ? '#ffd76a' : '#a8b597' });
+  text(t('[C] schließen'), P.x + P.w - 18, P.y + 29, { size: 12, color: '#a8b597', align: 'right' });
 
   // Silhouette hinter den Slots
   const cx = P.x + 125;
@@ -51,10 +52,10 @@ export function drawCharacter() {
   drawEquipSlots(slots);
   drawStats(P.x + 230, P.y + 68);
   drawPractice(P.x + 18, P.y + 392, P.w - 36);
-  text('Ziehen oder Rechtsklick: an-/ablegen · rausziehen = droppen', P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#8f9c80', align: 'center' });
+  text(t('Ziehen oder Rechtsklick: an-/ablegen · rausziehen = droppen'), P.x + P.w / 2, P.y + P.h - 14, { size: 12, color: '#8f9c80', align: 'center' });
 
   const hoverEq = eqSlotAt(mouse.x, mouse.y);
-  if (!ui.drag && hoverEq && me.eq[hoverEq]) itemTooltip(me.eq[hoverEq], [['Rechtsklick: ablegen', '#a8b597']], me.eqd && me.eqd[hoverEq]);
+  if (!ui.drag && hoverEq && me.eq[hoverEq]) itemTooltip(me.eq[hoverEq], [[t('Rechtsklick: ablegen'), '#a8b597']], me.eqd && me.eqd[hoverEq]);
 }
 
 function drawEquipSlots(slots) {
@@ -76,35 +77,35 @@ function drawEquipSlots(slots) {
       text(slot.name, r.x + r.w / 2, r.y + r.h / 2 + 5, { size: 12, color: 'rgba(255,255,255,0.3)', align: 'center' });
     }
   }
-  text('Waffe', slots.weapon.x + 30, slots.weapon.y + 76, { size: 11, color: '#8f9c80', align: 'center' });
+  text(t('Waffe'), slots.weapon.x + 30, slots.weapon.y + 76, { size: 11, color: '#8f9c80', align: 'center' });
 }
 
 // Was eine Fähigkeit auf ihrer Stufe insgesamt bringt, z. B. "+6 % Tempo · −18 % Sprint-Ausdauer"
 const PRACTICE_EFFECTS = {
-  speedPct: (v) => `+${v} % Tempo`,
-  sprintCost: (v) => `−${-v} % Sprint-Ausdauer`,
-  extraWood: (v) => `${v} % Chance auf +1 Holz`,
-  extraOre: (v) => `${v} % Chance auf +1 Gestein`,
-  rangedDmg: (v) => `+${v} % Schaden`,
-  rangedRate: (v) => `+${v} % Feuerrate`,
-  meleeDmg: (v) => `+${v} % Schaden`,
-  meleeRate: (v) => `+${v} % Schlagtempo`,
-  lootTwice: (v) => `${v} % doppelte Beute`,
-  smithSuccess: (v) => `+${v} % Erfolg`,
-  smithDrop: (v) => `−${-v} % Stufenverlust`,
-  smithBreak: (v) => `−${-v} % Zerstören`,
-  smithLuck: (v) => `+${v} % Seltenheit`,
+  speedPct: (v) => t('+{n} % Tempo', { n: v }),
+  sprintCost: (v) => t('−{n} % Sprint-Ausdauer', { n: -v }),
+  extraWood: (v) => t('{n} % Chance auf +1 Holz', { n: v }),
+  extraOre: (v) => t('{n} % Chance auf +1 Gestein', { n: v }),
+  rangedDmg: (v) => t('+{n} % Schaden', { n: v }),
+  rangedRate: (v) => t('+{n} % Feuerrate', { n: v }),
+  meleeDmg: (v) => t('+{n} % Schaden', { n: v }),
+  meleeRate: (v) => t('+{n} % Schlagtempo', { n: v }),
+  lootTwice: (v) => t('{n} % doppelte Beute', { n: v }),
+  smithSuccess: (v) => t('+{n} % Erfolg', { n: v }),
+  smithDrop: (v) => t('−{n} % Stufenverlust', { n: -v }),
+  smithBreak: (v) => t('−{n} % Zerstören', { n: -v }),
+  smithLuck: (v) => t('+{n} % Seltenheit', { n: v }),
 };
 
 function practiceEffect(def, level) {
-  if (!level) return 'Noch ungeübt';
+  if (!level) return t('Noch ungeübt');
   return Object.entries(def.per).map(([key, per]) => PRACTICE_EFFECTS[key](Math.round(per * level * 100))).join(' · ');
 }
 
 // Fähigkeiten durch Übung: zwei Spalten mit Stufe, Fortschritt und aktuellem Bonus
 function drawPractice(x, y, w) {
-  text('Fähigkeiten durch Übung', x, y, { size: 15, bold: true, color: '#e9eedd' });
-  text('steigen beim Tun · bleiben nach dem Tod', x + w, y, { size: 11, color: '#8f9c80', align: 'right' });
+  text(t('Fähigkeiten durch Übung'), x, y, { size: 15, bold: true, color: '#e9eedd' });
+  text(t('steigen beim Tun · bleiben nach dem Tod'), x + w, y, { size: 11, color: '#8f9c80', align: 'right' });
   const info = new Map((me.prac || []).map(([id, level, xp, need]) => [id, { level, xp, need }]));
   const colW = (w - 12) / 2;
   let hoverDef = null;
@@ -117,7 +118,7 @@ function drawPractice(x, y, w) {
     rrect(box.x, box.y, box.w, box.h, 8, hover ? 'rgba(255,230,140,0.1)' : 'rgba(0,0,0,0.3)', 'rgba(255,255,255,0.08)', 1);
     text(`${def.icon} ${def.name}`, rx + 8, ry + 17, { size: 13, bold: true, color: '#e9eedd' });
     const maxed = level >= cfg.PRACTICE.max;
-    text(maxed ? `Stufe ${level} (max)` : `Stufe ${level}`, rx + colW - 8, ry + 17, { size: 12, bold: true, color: level ? '#ffd76a' : '#8f9c80', align: 'right' });
+    text(t(maxed ? 'Stufe {n} (max)' : 'Stufe {n}', { n: level }), rx + colW - 8, ry + 17, { size: 12, bold: true, color: level ? '#ffd76a' : '#8f9c80', align: 'right' });
     // Fortschritt zur nächsten Stufe
     const barW = colW - 16, frac = maxed ? 1 : need ? Math.min(1, xp / need) : 0;
     rrect(rx + 8, ry + 23, barW, 5, 2.5, 'rgba(255,255,255,0.1)');
@@ -127,9 +128,9 @@ function drawPractice(x, y, w) {
   if (hoverDef) {
     const { level = 0, xp = 0, need = 0 } = info.get(hoverDef.id) || {};
     ui.pendingTooltip = () => tooltipLines([
-      [`${hoverDef.icon} ${hoverDef.name} · Stufe ${level}/${cfg.PRACTICE.max}`, '#ffe08a', true],
+      [`${hoverDef.icon} ${hoverDef.name} · ${t('Stufe {n}', { n: `${level}/${cfg.PRACTICE.max}` })}`, '#ffe08a', true],
       [hoverDef.desc, '#cfd8c0'],
-      [level >= cfg.PRACTICE.max ? 'Höchste Stufe erreicht' : `${xp} / ${need} Übung bis Stufe ${level + 1}`, '#a8b597'],
+      [level >= cfg.PRACTICE.max ? t('Höchste Stufe erreicht') : t('{n} / {max} Übung bis Stufe {lv}', { n: xp, max: need, lv: level + 1 }), '#a8b597'],
     ]);
   }
 }
@@ -137,11 +138,11 @@ function drawPractice(x, y, w) {
 // Werte-Tabelle; grün = besser als der Grundwert, rot = schlechter
 function drawStats(x, y) {
   const st = me.stats, base = cfg.PLAYER;
-  text('Werte', x, y, { size: 15, bold: true, color: '#e9eedd' });
-  const weapon = me.eq.weapon ? itemName(me.eq.weapon) : 'Faust';
+  text(t('Werte'), x, y, { size: 15, bold: true, color: '#e9eedd' });
+  const weapon = me.eq.weapon ? itemName(me.eq.weapon) : t('Faust');
   const rows = [
     ['❤', 'Leben', st.maxHp, st.maxHp - base.hp],
-    ['🛡', 'Rüstung', `${st.armor}  (−${Math.round(st.reduction * 100)}% Schaden)`, st.armor],
+    ['🛡', 'Rüstung', `${st.armor}  ${t('(−{n}% Schaden)', { n: Math.round(st.reduction * 100) })}`, st.armor],
     ['⚔', 'Schaden', `${st.damage}  (${weapon})`, 0],
     ['⛏', 'Abbau', `×${st.gather}`, 0],
     ['👟', 'Tempo', st.speed, st.speed - base.speed],
@@ -153,7 +154,7 @@ function drawStats(x, y) {
   rows.forEach(([icon, label, value, bonus], i) => {
     const ry = y + 30 + i * 30;
     rrect(x - 6, ry - 19, 222, 26, 6, i % 2 ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.32)');
-    text(`${icon}  ${label}`, x + 2, ry, { size: 13, color: '#cfd8c0' });
+    text(`${icon}  ${t(label)}`, x + 2, ry, { size: 13, color: '#cfd8c0' });
     text(String(value), x + 208, ry, { size: 13, bold: true, align: 'right', color: bonus > 0 ? '#9fe870' : bonus < 0 ? '#ff8a7a' : '#fff' });
   });
 }

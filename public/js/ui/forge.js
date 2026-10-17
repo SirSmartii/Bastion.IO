@@ -9,10 +9,10 @@ import { canAfford, nearFire } from '../rules.js';
 import { send } from '../net.js';
 import { upgradeLayout, upgradeClick, drawUpgrade } from './upgrade.js';
 import { foodText } from './inventory.js';
+import { t } from '../i18n.js';
 
 // Zusätzlicher Reiter nur im Client: Ausrüstung verbessern, umschmieden, zerlegen (ui/upgrade.js)
-const UPGRADE_TAB = { id: 'upgrade', name: 'Verbessern' };
-const forgeTabs = () => [...cfg.FORGE_TABS, UPGRADE_TAB];
+const forgeTabs = () => [...cfg.FORGE_TABS, { id: 'upgrade', name: t('Verbessern') }];
 
 // Rezept eines Items: Ausrüstung hat es direkt, stapelbare Items (Munition) in ITEMS.recipes
 function recipeOf(id) {
@@ -31,7 +31,7 @@ export const CARD = { cols: 3, w: 270, h: 96, gap: 8, pad: 18 };
 
 // Material-Auswahl in einem Reiter (Reihenfolge wie die Material-Leiter, Fell & Leder vorne)
 const MAT_ORDER = ['fur', 'leather', 'wood', 'stone', 'copper', 'bronze', 'iron', 'steel', 'diamond', 'ruby'];
-const matName = (m) => ({ fur: 'Fell', leather: 'Leder' }[m] || cfg.MATERIALS[m].name);
+const matName = (m) => ({ fur: t('Fell'), leather: t('Leder') }[m] || cfg.MATERIALS[m].name);
 const matForge = (m) => (cfg.MATERIALS[m] && cfg.MATERIALS[m].forge) || 1;
 export const panelWidth = (cols = CARD.cols) => CARD.pad * 2 + cols * CARD.w + (cols - 1) * CARD.gap;
 
@@ -44,7 +44,7 @@ export function cardGrid(ids, x, top, cols = CARD.cols) {
 }
 
 export function layout() {
-  const tab = forgeTabs().some((t) => t.id === ui.forgeTab) ? ui.forgeTab : cfg.FORGE_TABS[0].id;
+  const tab = forgeTabs().some((tb) => tb.id === ui.forgeTab) ? ui.forgeTab : cfg.FORGE_TABS[0].id;
   const all = tab === 'upgrade' ? [] : recipeIds((recipe, id) => (cfg.EQUIPMENT[id] ? cfg.EQUIPMENT[id].tab : recipe.tab) === tab);
   // Gibt es im Reiter mehrere Materialien, zeigt die Schmiede nur eines (Auswahl über Knöpfe)
   const mats = MAT_ORDER.filter((m) => all.some((id) => cfg.EQUIPMENT[id] && cfg.EQUIPMENT[id].mat === m));
@@ -66,8 +66,8 @@ export function layout() {
 
 export function onClick(x, y) {
   const L = layout();
-  const tab = L.tabs.find((t) => inRect(x, y, t.rect));
-  const matTab = L.matTabs.find((t) => inRect(x, y, t.rect));
+  const tab = L.tabs.find((tb) => inRect(x, y, tb.rect));
+  const matTab = L.matTabs.find((tb) => inRect(x, y, tb.rect));
   const card = L.cards.find((c) => inRect(x, y, c.btn));
   if (tab) ui.forgeTab = tab.id;
   else if (matTab) ui.forgeMat = matTab.id;
@@ -79,17 +79,17 @@ export function draw() {
   const { panel: P, tabs, matTabs, mat, cards, tab, upgrade, top } = layout();
   const forgeLevel = me.forge ? me.forge[3] + 1 : 0;
   rrect(P.x, P.y, P.w, P.h, 14, 'rgba(24,18,14,0.96)', '#7a5a34', 3);
-  text(`⚒️ Schmiede · Lv ${forgeLevel}`, P.x + 18, P.y + 29, { size: 18, bold: true, color: '#f2d27a' });
-  text('[F] schließen · höheres Level mit [E] an der Schmiede', P.x + P.w - 18, P.y + 29, { size: 12, color: '#a8977f', align: 'right' });
-  for (const t of tabs) {
-    const active = t.id === tab;
-    rrect(t.rect.x, t.rect.y, t.rect.w, t.rect.h, 8, active ? '#c98a3c' : 'rgba(0,0,0,0.3)', active ? '#8a5a20' : 'rgba(255,255,255,0.1)', 2);
-    text(t.name, t.rect.x + t.rect.w / 2, t.rect.y + 22, { size: 12, bold: true, align: 'center', color: active ? '#1f1409' : '#e9e0d0' });
+  text(t('⚒️ Schmiede · Lv {n}', { n: forgeLevel }), P.x + 18, P.y + 29, { size: 18, bold: true, color: '#f2d27a' });
+  text(t('[F] schließen · höheres Level mit [E] an der Schmiede'), P.x + P.w - 18, P.y + 29, { size: 12, color: '#a8977f', align: 'right' });
+  for (const tb of tabs) {
+    const active = tb.id === tab;
+    rrect(tb.rect.x, tb.rect.y, tb.rect.w, tb.rect.h, 8, active ? '#c98a3c' : 'rgba(0,0,0,0.3)', active ? '#8a5a20' : 'rgba(255,255,255,0.1)', 2);
+    text(fitText(tb.name, tb.rect.w - 8, 'bold 12px Segoe UI, sans-serif'), tb.rect.x + tb.rect.w / 2, tb.rect.y + 22, { size: 12, bold: true, align: 'center', color: active ? '#1f1409' : '#e9e0d0' });
   }
-  for (const t of matTabs) {
-    const active = t.id === mat, locked = t.forge > forgeLevel;
-    rrect(t.rect.x, t.rect.y, t.rect.w, t.rect.h, 6, active ? 'rgba(201,138,60,0.85)' : 'rgba(0,0,0,0.25)', active ? '#8a5a20' : 'rgba(255,255,255,0.08)', 1.5);
-    text(t.name + (locked ? ` · Lv ${t.forge}` : ''), t.rect.x + t.rect.w / 2, t.rect.y + 17, { size: 11, bold: active, align: 'center', color: active ? '#1f1409' : locked ? '#8a8070' : '#d9cfbe' });
+  for (const tb of matTabs) {
+    const active = tb.id === mat, locked = tb.forge > forgeLevel;
+    rrect(tb.rect.x, tb.rect.y, tb.rect.w, tb.rect.h, 6, active ? 'rgba(201,138,60,0.85)' : 'rgba(0,0,0,0.25)', active ? '#8a5a20' : 'rgba(255,255,255,0.08)', 1.5);
+    text(fitText(tb.name + (locked ? ` · Lv ${tb.forge}` : ''), tb.rect.w - 6, `${active ? 'bold ' : ''}11px Segoe UI, sans-serif`), tb.rect.x + tb.rect.w / 2, tb.rect.y + 17, { size: 11, bold: active, align: 'center', color: active ? '#1f1409' : locked ? '#8a8070' : '#d9cfbe' });
   }
   if (upgrade) drawUpgrade(upgrade, P.x + CARD.pad, top);
   for (const card of cards) drawRecipeCard(card, forgeLevel);
@@ -112,9 +112,9 @@ export function drawRecipeCard({ id, rect: r, btn }, forgeLevel) {
   ctx.globalAlpha = levelOk ? 1 : 0.4;
   drawItemIcon(id, r.x + 30, r.y + 32, 40);
   ctx.globalAlpha = 1;
-  text(def.name, r.x + 58, r.y + 22, { size: 14, bold: true, color: levelOk ? '#fff' : '#999' });
-  if (equipped) text('angelegt', r.x + r.w - 10, r.y + 22, { size: 11, color: '#9fe870', align: 'right' });
-  const info = !def.stack ? fmtStats(def) : cfg.ITEMS.food[id] ? foodText(id) : `${recipe.amount}× pro Herstellung · im Inventar: ${me.res[id] || 0}`;
+  text(fitText(def.name, r.w - 68 - (equipped ? 60 : 0), 'bold 14px Segoe UI, sans-serif'), r.x + 58, r.y + 22, { size: 14, bold: true, color: levelOk ? '#fff' : '#999' });
+  if (equipped) text(t('angelegt'), r.x + r.w - 10, r.y + 22, { size: 11, color: '#9fe870', align: 'right' });
+  const info = !def.stack ? fmtStats(def) : cfg.ITEMS.food[id] ? foodText(id) : t('{n}× pro Herstellung · im Inventar: {have}', { n: recipe.amount, have: me.res[id] || 0 });
   text(fitText(info, r.w - 66, '11px Segoe UI, sans-serif'), r.x + 58, r.y + 40, { size: 11, color: '#cfb994' });
 
   // Kosten: grün = vorhanden, rot = fehlt
@@ -125,9 +125,9 @@ export function drawRecipeCard({ id, rect: r, btn }, forgeLevel) {
     text(label, cx, r.y + 62, { size: 12, color: (me.res[item] || 0) >= n ? '#9fe870' : '#ff8a7a' });
     cx += ctx.measureText(label).width + 8;
   }
-  if (!levelOk) text(recipe.campfire ? 'an einem brennenden Lagerfeuer' : `Schmiede Lv ${recipe.forge} nötig`, r.x + 10, r.y + r.h - 12, { size: 11, color: '#ff8a7a' });
+  if (!levelOk) text(recipe.campfire ? t('an einem brennenden Lagerfeuer') : t('Schmiede Lv {n} nötig', { n: recipe.forge }), r.x + 10, r.y + r.h - 12, { size: 11, color: '#ff8a7a' });
 
   const hover = inRect(mouse.x, mouse.y, btn);
   rrect(btn.x, btn.y, btn.w, btn.h, 7, ok ? (hover ? '#92c453' : '#7fae45') : '#4a4a44', ok ? '#5a8130' : '#333', 2);
-  text('Herstellen', btn.x + btn.w / 2, btn.y + 18, { size: 12, bold: true, align: 'center', color: ok ? '#13200a' : '#888' });
+  text(fitText(t('Herstellen'), btn.w - 6, 'bold 12px Segoe UI, sans-serif'), btn.x + btn.w / 2, btn.y + 18, { size: 12, bold: true, align: 'center', color: ok ? '#13200a' : '#888' });
 }

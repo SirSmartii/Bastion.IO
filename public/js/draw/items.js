@@ -4,6 +4,7 @@ import { ctx, cfg } from '../state.js';
 import { LEVEL_COLORS, LEVEL_DARK, ARROW_TIPS } from '../constants.js';
 import { circle, rrect } from './primitives.js';
 import { art } from '../assets.js';
+import { t, dec } from '../i18n.js';
 
 export const itemName = (item) => (cfg.EQUIPMENT[item] ? cfg.EQUIPMENT[item].name : cfg.ITEMS.names[item] || item);
 export const stackMax = (item) => (cfg.EQUIPMENT[item] ? 1 : cfg.INVENTORY.stack[item]);
@@ -19,12 +20,12 @@ export const gearName = (item, d) => itemName(item) + (d && d.u ? ` +${d.u}` : '
 
 // "+12 % Schaden", "−3 Rüstung"
 export function fmtMod(mod, v) {
-  return `${v > 0 ? '+' : '−'}${String(Math.abs(v)).replace('.', ',')}${mod.pct ? ' %' : ''} ${mod.name}`;
+  return `${v > 0 ? '+' : '−'}${dec(Math.abs(v))}${mod.pct ? ' %' : ''} ${mod.name}`;
 }
 
 // Tooltip-Zeilen: Seltenheit, Boni (grün), Fluch (rot)
 export function gearLines(d) {
-  const R = rarityOf(d), lines = [[`${R.name}${d && d.c ? ' · verflucht' : ''}`, R.color, true]];
+  const R = rarityOf(d), lines = [[`${R.name}${d && d.c ? t(' · verflucht') : ''}`, R.color, true]];
   for (const [id, v] of (d && d.m) || []) lines.push([`  ${fmtMod(cfg.MODS[id], v)}`, '#9fe870']);
   if (d && d.c) lines.push([`  ${fmtMod(cfg.CURSES[d.c[0]], d.c[1])}`, '#ff7a6a']);
   return lines;
@@ -52,26 +53,26 @@ export function gearBadge(r, d) {
 export function fmtStats(def, d) {
   const up = 1 + cfg.GEAR.upgradeBonus * ((d && d.u) || 0), main = def.slot === 'weapon' ? ['damage'] : ['armor', 'maxHp'];
   const st = Object.fromEntries(Object.entries(def.stats).map(([k, v]) => [k, main.includes(k) ? +(v * up).toFixed(1) : v]));
-  if (def.kind === 'backpack') return `+${def.slots} Inventarplätze`;
-  if (def.slot !== 'weapon') return Object.entries(st).map(([k, v]) => `${v > 0 ? '+' : ''}${v} ${STAT_LABELS[k] || k}`).join(' · ');
+  if (def.kind === 'backpack') return t('+{n} Inventarplätze', { n: def.slots });
+  if (def.slot !== 'weapon') return Object.entries(st).map(([k, v]) => `${v > 0 ? '+' : ''}${dec(v)} ${t(STAT_LABELS[k] || k)}`).join(' · ');
   const pellets = def.projectile && def.projectile.pellets;
-  const parts = [pellets ? `${pellets}×${st.damage} Schaden` : `${st.damage} Schaden`, `${st.attackSpeed || +(1 / cfg.PLAYER.attackCooldown).toFixed(1)}/s`];
-  parts.push(st.range ? `Weite ${st.range}` : `Reichw. ${st.reach || cfg.PLAYER.reach}`);
+  const parts = [t('{n} Schaden', { n: pellets ? `${pellets}×${dec(st.damage)}` : dec(st.damage) }), `${dec(st.attackSpeed || +(1 / cfg.PLAYER.attackCooldown).toFixed(1))}/s`];
+  parts.push(st.range ? t('Weite {n}', { n: st.range }) : t('Reichw. {n}', { n: st.reach || cfg.PLAYER.reach }));
   if (def.ammo) parts.push(cfg.AMMO[def.ammo].label);
-  else if (def.kind === 'torch') return `${st.damage} Schaden · leuchtet weit & verscheucht Tiere · brennt ${Math.round(def.burn / 60)} min`;
-  else if (def.kind === 'rod') return 'Am Seeufer [F]: angeln';
-  else if (st.mine) parts.push(`×${st.mine} Gestein`, `×${st.gather} Holz`);
-  else parts.push(st.gather ? `×${st.gather} Abbau` : 'kein Abbau');
-  if (st.tool !== undefined) parts.push(`Erz: ${oreReach(st.tool)}`);
+  else if (def.kind === 'torch') return t('{n} Schaden · leuchtet weit & verscheucht Tiere · brennt {min} min', { n: st.damage, min: Math.round(def.burn / 60) });
+  else if (def.kind === 'rod') return t('Am Seeufer [F]: angeln');
+  else if (st.mine) parts.push(t('×{n} Gestein', { n: st.mine }), t('×{n} Holz', { n: st.gather }));
+  else parts.push(st.gather ? t('×{n} Abbau', { n: st.gather }) : t('kein Abbau'));
+  if (st.tool !== undefined) parts.push(t('Erz: {ores}', { ores: oreReach(st.tool) }));
   return parts.join(' · ');
 }
 
 // Welche Erze ein Werkzeug der Material-Stufe tier abbauen kann (RESOURCES[*].tool)
 function oreReach(tier) {
   const ores = Object.values(cfg.RESOURCES).filter((r) => r.tool && r.tool <= tier).map((r) => r.tool);
-  if (!ores.length) return 'keins';
+  if (!ores.length) return t('keins');
   const top = Math.max(...ores);
-  return top >= 5 ? 'alles inkl. Edelsteine' : top >= 3 ? 'Kupfer, Zinn, Eisen' : 'Kupfer, Zinn';
+  return t(top >= 5 ? 'alles inkl. Edelsteine' : top >= 3 ? 'Kupfer, Zinn, Eisen' : 'Kupfer, Zinn');
 }
 
 // Item-Symbol, zentriert auf (x, y) mit Größe s (Grafiken unter assets/items und assets/gear)
@@ -117,7 +118,7 @@ export function drawWeapon(def, pull = 0) {
   art(`gear/weapons/${def.kind}`, gearColors(def)); // axe, pick, sword, dagger, spear, bow, torch, rod
   if (def.kind === 'torch') {
     // flackernde Flamme am Kopf der Fackel
-    const t = performance.now() / 1000, f = 1 + Math.sin(t * 13) * 0.12 + Math.sin(t * 29) * 0.08;
+    const s = performance.now() / 1000, f = 1 + Math.sin(s * 13) * 0.12 + Math.sin(s * 29) * 0.08;
     circle(42, 0, 9 * f, 'rgba(255,120,30,0.55)');
     circle(41, 0, 6 * f, 'rgba(255,190,60,0.9)');
     circle(40, 0, 3 * f, '#fff3b0');

@@ -8,7 +8,7 @@
 </head>
 <body>
   <canvas id="game"></canvas>
-  <input id="chat" maxlength="120" autocomplete="off" placeholder="Nachricht an Spieler in der Nähe · /t … = Team">
+  <input id="chat" maxlength="120" autocomplete="off" placeholder="Nachricht an Spieler in der Nähe · /t … = Team" data-i18n-ph>
 
   <!-- Hauptmenü: nächtliche Lichtung aus den Spielgrafiken, davor Titelschild und Login-Brett (Werkbank-Stil wie das HUD) -->
   <div id="menu">
@@ -29,31 +29,34 @@
     <div class="board">
       <div class="sign">
         <h1>Bastion<span>.io</span></h1>
-        <p class="tagline">Sammeln · Bauen · Schmieden · Überleben</p>
+        <p class="tagline" data-i18n>Sammeln · Bauen · Schmieden · Überleben</p>
       </div>
+
+      <!-- Sprachauswahl: Knöpfe kommen aus js/i18n.js (LANGS), menu.js füllt sie -->
+      <div class="langs" id="langs" role="group" aria-label="Sprache · Language · Język"></div>
 
       <div class="plank">
         <div class="parchment">
-          <label for="name">Name</label>
-          <input id="name" maxlength="16" placeholder="Dein Name" autocomplete="username">
-          <label for="pass">Passwort <small>(nur für einen Account)</small></label>
+          <label for="name" data-i18n>Name</label>
+          <input id="name" maxlength="16" placeholder="Dein Name" autocomplete="username" data-i18n-ph>
+          <label for="pass" data-i18n-html>Passwort <small>(nur für einen Account)</small></label>
           <input id="pass" type="password" maxlength="64" placeholder="••••••" autocomplete="current-password">
           <div class="auth-buttons">
-            <button id="play">Einloggen</button>
-            <button id="register" class="secondary">Registrieren</button>
+            <button id="play" data-i18n>Einloggen</button>
+            <button id="register" class="secondary" data-i18n>Registrieren</button>
           </div>
           <p id="menu-info"></p>
         </div>
-        <button id="guest" class="guest">Als Gast spielen <small>· wird nicht gespeichert</small></button>
+        <button id="guest" class="guest" data-i18n-html>Als Gast spielen <small>· wird nicht gespeichert</small></button>
       </div>
 
       <ul class="features">
-        <li><img src="assets/items/materials/wood.svg" alt=""><span>Rohstoffe sammeln</span></li>
-        <li><img src="assets/ui/base.svg" alt=""><span>Basis bauen</span></li>
-        <li><img src="assets/items/materials/bronze.svg" alt=""><span>Schmieden</span></li>
-        <li><img src="assets/ui/hourglass.svg" alt=""><span>Nächte überleben</span></li>
+        <li><img src="assets/items/materials/wood.svg" alt=""><span data-i18n>Rohstoffe sammeln</span></li>
+        <li><img src="assets/ui/base.svg" alt=""><span data-i18n>Basis bauen</span></li>
+        <li><img src="assets/items/materials/bronze.svg" alt=""><span data-i18n>Schmieden</span></li>
+        <li><img src="assets/ui/hourglass.svg" alt=""><span data-i18n>Nächte überleben</span></li>
       </ul>
-      <p class="hint">Steuerung &amp; Hilfe im Spiel: <kbd>Esc</kbd></p>
+      <p class="hint" data-i18n-html>Steuerung &amp; Hilfe im Spiel: <kbd>Esc</kbd></p>
     </div>
   </div>
 

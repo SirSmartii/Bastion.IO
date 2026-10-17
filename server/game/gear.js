@@ -143,9 +143,9 @@ module.exports = {
     const ref = this.gearRef(p, src, i);
     if (!ref) return;
     const d = ref.d || { r: 0, u: 0, m: [] }, target = d.u + 1, name = C.EQUIPMENT[ref.item].name;
-    if (target > C.GEAR.upgrade.length) return this.msg(p, `${name} ist schon auf +${d.u}.`);
+    if (target > C.GEAR.upgrade.length) return this.msg(p, '{name} ist schon auf +{n}.', { name, n: d.u });
     const cost = upgradeCost(ref.item, target);
-    if (!Inv.canAfford(p.inv, cost)) return this.msg(p, `Nicht genug Material für +${target}.`);
+    if (!Inv.canAfford(p.inv, cost)) return this.msg(p, 'Nicht genug Material für +{n}.', { n: target });
     const useWard = !!ward && Inv.count(p.inv, 'ward') > 0 && C.GEAR.upgrade[target - 1].odds[3] > 0;
     const odds = this.upgradeOdds(p, target, useWard);
     Inv.pay(p.inv, cost);
@@ -157,18 +157,18 @@ module.exports = {
     if (roll < odds[0]) {
       ref.set({ ...d, u: target });
       this.events.push([forge.x, forge.y, 'up']);
-      return this.msg(p, `✨ ${name} ist jetzt +${target}!`);
+      return this.msg(p, '✨ {name} ist jetzt +{n}!', { name, n: target });
     }
-    if (roll < odds[0] + odds[1]) return this.msg(p, `Fehlschlag – ${name} bleibt +${d.u}, das Material ist verbraucht.`);
+    if (roll < odds[0] + odds[1]) return this.msg(p, 'Fehlschlag – {name} bleibt +{n}, das Material ist verbraucht.', { name, n: d.u });
     if (roll < odds[0] + odds[1] + odds[2]) {
       ref.set(this.cleanGear(ref.item, { ...d, u: d.u - 1 }));
-      return this.msg(p, `💢 Fehlschlag – ${name} fällt auf +${d.u - 1} zurück.`);
+      return this.msg(p, '💢 Fehlschlag – {name} fällt auf +{n} zurück.', { name, n: d.u - 1 });
     }
     ref.remove();
     const [a, b] = C.GEAR.breakScrap;
     this.give(p, 'scrap', Math.round(rand(a, b)), p.x, p.y);
     this.events.push([forge.x, forge.y, 'boom']);
-    return this.msg(p, `💥 ${name} ist beim Verbessern zerbrochen! Ein paar Schrottteile bleiben übrig.`);
+    return this.msg(p, '💥 {name} ist beim Verbessern zerbrochen! Ein paar Schrottteile bleiben übrig.', { name });
   },
 
   // Kosten fürs nächste Umschmieden dieses Teils
@@ -193,13 +193,13 @@ module.exports = {
     if (k === -1) {
       delete next.c;
       next.m = next.m.map(([id, v]) => [id, rollValue({ range: [v / boost, v / boost], step: C.MODS[id].step })]);
-      this.msg(p, `Der Fluch ist gebrochen – die Boni von ${def.name} sind wieder normal stark.`);
+      this.msg(p, 'Der Fluch ist gebrochen – die Boni von {name} sind wieder normal stark.', { name: def.name });
     } else {
       // möglichst ein anderer Bonus als bisher; gibt es keinen mehr, wenigstens ein neuer Wert
       const ids = pool(C.MODS, def);
       const id = pickNew(ids, next.m.map((m) => m[0])) || pickNew(ids, next.m.filter((_, j) => j !== k).map((m) => m[0]));
       next.m[k] = [id, rollValue(C.MODS[id], boost)];
-      this.msg(p, `Neuer Bonus: ${C.MODS[id].name}.`);
+      this.msg(p, 'Neuer Bonus: {mod}.', { mod: C.MODS[id].name });
     }
     ref.set(next);
     this.events.push([p.forge.x, p.forge.y, 'fix']);
@@ -221,6 +221,7 @@ module.exports = {
     ref.remove();
     for (const [item, n] of Object.entries(back)) this.give(p, item, n, p.x, p.y);
     this.addPractice(p, 'smithing', 1);
-    this.msg(p, `${def.name} zerlegt: ${Object.entries(back).map(([item, n]) => `${n}× ${C.ITEMS.names[item]}`).join(', ') || 'nichts'}.`);
+    const list = Object.entries(back).map(([item, n]) => [n, C.ITEMS.names[item]]);
+    this.msg(p, list.length ? '{name} zerlegt: {list}.' : '{name} zerlegt: nichts.', { name: def.name, list });
   },
 };

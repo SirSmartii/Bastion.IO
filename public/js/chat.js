@@ -2,6 +2,7 @@
 
 import { ctx, H, now, keys, mouse, myId } from './state.js';
 import { panel, wrapText } from './draw/primitives.js';
+import { t } from './i18n.js';
 
 export const chatInput = document.getElementById('chat');
 export const chatLog = []; // { name, text, team, mine, t }
@@ -54,7 +55,7 @@ export function drawChatLog() {
   ctx.font = '13px Segoe UI, sans-serif';
   const lines = [];
   for (const c of shown) {
-    const prefix = `${c.team ? '[Team] ' : ''}${c.name}: `;
+    const prefix = `${c.team ? t('[Team] ') : ''}${c.name}: `;
     const alpha = typing ? 1 : Math.min(1, (VISIBLE_SECONDS - (now - c.t)) / 2);
     wrapText(prefix + c.text, w - 20).forEach((line, i) => lines.push({ line, c, first: i === 0, alpha, prefix }));
   }

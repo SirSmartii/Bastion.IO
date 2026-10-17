@@ -7,16 +7,17 @@ import { panel, text } from '../draw/primitives.js';
 import { itemName, fmtStats, gearName, gearLines, rarityOf } from '../draw/items.js';
 import { canAfford } from '../rules.js';
 import { fmtCost } from './format.js';
+import { t, dec } from '../i18n.js';
 
 // lines: [[Text, Farbe, fett?], …] als Kasten neben der Maus
 function drawTooltipBox(lines, lineH = 20) {
   ctx.font = '14px Segoe UI, sans-serif';
-  const w = Math.max(...lines.map(([t]) => ctx.measureText(t).width)) + 24, h = lines.length * lineH + 12;
+  const w = Math.max(...lines.map(([s]) => ctx.measureText(s).width)) + 24, h = lines.length * lineH + 12;
   let x = mouse.x + 16, y = mouse.y + 16;
   if (x + w > W) x = mouse.x - w - 10;
   if (y + h > H) y = mouse.y - h - 10;
   panel(x, y, w, h);
-  lines.forEach(([t, color, bold], i) => text(t, x + 12, y + 22 + i * lineH, { size: 14, color, bold }));
+  lines.forEach(([s, color, bold], i) => text(s, x + 12, y + 22 + i * lineH, { size: 14, color, bold }));
 }
 
 // Beliebige Zeilen als Tooltip (wird nach allen Fenstern gezeichnet)
@@ -47,19 +48,19 @@ export function drawPendingTooltip() {
 // Werte eines Gebäudes auf einer Stufe (für "jetzt" und "nach dem Upgrade")
 function structureStats(type, def, level) {
   switch (type) {
-    case 'turret': return `Schaden ${level.dmg} · Reichweite ${level.range} · ${level.rate}/s`;
-    case 'spike': return `Schaden ${level.dmg}`;
-    case 'mine': return `+${fmtCost(level.income)} alle ${def.interval}s`;
-    case 'core': return `Radius ${level.radius} · Limit ${level.maxStructures} · Lager ${level.slots}`;
-    case 'storage': return `${level.slots} Plätze`;
-    case 'furnace': return `${level.slots} Plätze · Barren alle ${String(level.time).replace('.', ',')} s${def.levels.indexOf(level) + 1 >= 3 ? ' · Stahl' : ''}`;
-    case 'tanner': return `${level.slots} Plätze · 1 Leder alle ${level.time} s`;
-    case 'sleeping_bag': return `Aufwachen nach dem Tod · danach ${def.cooldown} s gesperrt`;
-    case 'campfire': return `${level.slots} Plätze · brät alle ${level.time} s · verscheucht Tiere`;
+    case 'turret': return t('Schaden {dmg} · Reichweite {range} · {rate}/s', { dmg: level.dmg, range: level.range, rate: dec(level.rate) });
+    case 'spike': return t('Schaden {dmg}', { dmg: level.dmg });
+    case 'mine': return t('+{income} alle {n}s', { income: fmtCost(level.income), n: def.interval });
+    case 'core': return t('Radius {r} · Limit {max} · Lager {n}', { r: level.radius, max: level.maxStructures, n: level.slots });
+    case 'storage': return t('{n} Plätze', { n: level.slots });
+    case 'furnace': return t('{n} Plätze · Barren alle {s} s', { n: level.slots, s: dec(level.time) }) + (def.levels.indexOf(level) + 1 >= 3 ? t(' · Stahl') : '');
+    case 'tanner': return t('{n} Plätze · 1 Leder alle {s} s', { n: level.slots, s: level.time });
+    case 'sleeping_bag': return t('Aufwachen nach dem Tod · danach {n} s gesperrt', { n: def.cooldown });
+    case 'campfire': return t('{n} Plätze · brät alle {s} s · verscheucht Tiere', { n: level.slots, s: level.time });
     case 'forge': {
       const forgeLevel = def.levels.indexOf(level) + 1;
       const recipes = [...Object.values(cfg.EQUIPMENT), ...Object.values(cfg.ITEMS.recipes).map((recipe) => ({ recipe }))];
-      return `${recipes.filter((e) => e.recipe && e.recipe.forge <= forgeLevel).length} Rezepte freigeschaltet`;
+      return t('{n} Rezepte freigeschaltet', { n: recipes.filter((e) => e.recipe && e.recipe.forge <= forgeLevel).length });
     }
     default: return null;
   }
@@ -76,20 +77,20 @@ const INTERACT_HINTS = {
 
 export function drawStructureTooltip(s) {
   const def = cfg.STRUCTURES[s.type], current = def.levels[s.level], next = def.levels[s.level + 1];
-  const lines = [[`${def.name} · Lv ${s.level + 1} (${LEVEL_NAMES[s.level]})`, '#ffe08a', true], [`HP ${s.hp} / ${s.maxHp}`, '#fff']];
+  const lines = [[`${def.name} · Lv ${s.level + 1} (${t(LEVEL_NAMES[s.level])})`, '#ffe08a', true], [`HP ${s.hp} / ${s.maxHp}`, '#fff']];
   const stats = structureStats(s.type, def, current);
   if (stats) lines.push([stats, '#cfd8c0']);
   if (s.owner === myId) {
-    if (!next) lines.push(['Maximales Level', '#ffe08a']);
-    else if (s.type !== 'core' && me.core && s.level + 1 > me.core[3]) lines.push(['Kern upgraden, um weiter zu verbessern', '#ff9a7a']);
+    if (!next) lines.push([t('Maximales Level'), '#ffe08a']);
+    else if (s.type !== 'core' && me.core && s.level + 1 > me.core[3]) lines.push([t('Kern upgraden, um weiter zu verbessern'), '#ff9a7a']);
     else {
       const nextStats = structureStats(s.type, def, next);
-      lines.push([`[E] Upgrade: ${fmtCost(next.cost)}`, canAfford(next.cost) ? '#9fe870' : '#ff9a7a']);
+      lines.push([t('[E] Upgrade: {cost}', { cost: fmtCost(next.cost) }), canAfford(next.cost) ? '#9fe870' : '#ff9a7a']);
       lines.push([`→ HP ${next.hp}${nextStats ? ' · ' + nextStats : ''}`, '#aab6a0']);
     }
-    if (s.hp < s.maxHp) lines.push([`Axt-Schlag repariert (${2 + s.level * 2}🪵)`, '#cfd8c0']);
-    if (INTERACT_HINTS[s.type]) lines.push([INTERACT_HINTS[s.type], '#ffd76a']);
-    lines.push(['[X] Abreißen', '#aab6a0']);
+    if (s.hp < s.maxHp) lines.push([t('Axt-Schlag repariert ({n}🪵)', { n: 2 + s.level * 2 }), '#cfd8c0']);
+    if (INTERACT_HINTS[s.type]) lines.push([t(INTERACT_HINTS[s.type]), '#ffd76a']);
+    lines.push([t('[X] Abreißen'), '#aab6a0']);
   }
   drawTooltipBox(lines);
 }

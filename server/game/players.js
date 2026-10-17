@@ -8,7 +8,8 @@ const { pushOutOfCircle, pushOutOfRect } = require('./geometry');
 
 const NAME_RE = /^[\p{L}\p{N}_\-.]+$/u;
 // Fehler mit Text für den Spieler (alles andere ist ein interner Fehler und wird nur geloggt)
-const playerError = (text) => Object.assign(new Error(text), { forPlayer: true });
+// Fehler mit Text für den Spieler (deutsche Vorlage mit {Platzhaltern}, der Client übersetzt sie)
+const playerError = (text, v) => Object.assign(new Error(text), { forPlayer: true, v });
 const MAX_MESSAGE_LENGTH = 2048;
 const MAX_MESSAGES_PER_SECOND = 120; // mehr schickt kein normaler Client – Rest wird verworfen
 
@@ -18,7 +19,7 @@ module.exports = {
   onConnection(conn) {
     let player = null, authBusy = false, closed = false, lastLoginTry = 0;
     let windowStart = Date.now(), messagesInWindow = 0;
-    const authError = (err) => conn.send(JSON.stringify({ t: 'auth', err }));
+    const authError = (err, v) => conn.send(JSON.stringify({ t: 'auth', err, v }));
 
     conn.on('message', (raw) => {
       // Spam-Schutz: zu lange oder zu viele Nachrichten ignorieren
@@ -52,7 +53,7 @@ module.exports = {
           player = this.addPlayer(conn, acc.username, acc);
         }).catch((e) => {
           if (!e.forPlayer) console.error('Login fehlgeschlagen:', e);
-          if (!closed) authError(e.forPlayer ? e.message : 'Login fehlgeschlagen – bitte nochmal versuchen.');
+          if (!closed) authError(e.forPlayer ? e.message : 'Login fehlgeschlagen – bitte nochmal versuchen.', e.forPlayer ? e.v : undefined);
         }).finally(() => { authBusy = false; });
       }
     });
@@ -73,9 +74,9 @@ module.exports = {
     if (!this.db) throw playerError('Accounts sind auf diesem Server deaktiviert – spiel als Gast.');
     const user = String(msg.user || '').trim(), pass = String(msg.pass || '');
     if (user.length < A.nameMin || user.length > A.nameMax || !NAME_RE.test(user)) {
-      throw playerError(`Name: ${A.nameMin}–${A.nameMax} Zeichen (Buchstaben, Zahlen, _ - .).`);
+      throw playerError('Name: {min}–{max} Zeichen (Buchstaben, Zahlen, _ - .).', { min: A.nameMin, max: A.nameMax });
     }
-    if (pass.length < A.passMin || pass.length > A.passMax) throw playerError(`Passwort: ${A.passMin}–${A.passMax} Zeichen.`);
+    if (pass.length < A.passMin || pass.length > A.passMax) throw playerError('Passwort: {min}–{max} Zeichen.', { min: A.passMin, max: A.passMax });
     if (msg.t === 'register') return this.db.register(user, pass);
     const acc = await this.db.login(user, pass);
     if (!acc) throw playerError('Name oder Passwort falsch.');
@@ -111,7 +112,8 @@ module.exports = {
     this.sendInit(p, acc);
 
     if (saved) {
-      this.msg(p, `Willkommen zurück, ${p.name}!${p.core ? '' : ' Deine Basis ist nicht mehr da – baue eine neue.'}`);
+      this.msg(p, 'Willkommen zurück, {name}!', { name: p.name });
+      if (!p.core) this.msg(p, 'Deine Basis ist nicht mehr da – baue eine neue.');
       if (p.core && p.core.decaying) this.msg(p, '⚠ Deine Basis verfällt! Lege Ressourcen in den Basis-Kern [F].');
       return p;
     }
@@ -341,7 +343,7 @@ module.exports = {
     if (p.thirst >= S.max && !bottles) return this.msg(p, 'Du hast keinen Durst.');
     p.thirst = Math.min(S.max, p.thirst + S.drinkAmount);
     this.events.push([Math.round(p.x), Math.round(p.y), 'drink', S.drinkAmount, p.id]);
-    if (bottles) this.msg(p, `💧 ${bottles}× Feldflasche gefüllt.`);
+    if (bottles) this.msg(p, '💧 {n}× Feldflasche gefüllt.', { n: bottles });
   },
 
   // ---------- Fackel & Angel ----------
@@ -388,7 +390,8 @@ module.exports = {
     this.give(p, c.item, n, p.x, p.y);
     this.addXp(p, C.FISHING.xp);
     this.events.push([Math.round(p.x), Math.round(p.y), 'g', n, 0, c.item, p.id]);
-    this.msg(p, c.msg || `🎣 ${n}× ${C.ITEMS.names[c.item]} gefangen!`);
+    if (c.msg) this.msg(p, c.msg);
+    else this.msg(p, '🎣 {n}× {item} gefangen!', { n, item: C.ITEMS.names[c.item] });
   },
 
   // Tastenbits: 1 hoch, 2 runter, 4 links, 8 rechts, 16 sprinten
@@ -453,7 +456,7 @@ module.exports = {
       p.level++;
       p.sp++;
       this.events.push([Math.round(p.x), Math.round(p.y), 'lvl', p.level, p.id]);
-      this.msg(p, `Level ${p.level}! +1 Skillpunkt – verteilen mit [K]`);
+      this.msg(p, 'Level {n}! +1 Skillpunkt – verteilen mit [K]', { n: p.level });
     }
   },
 
@@ -461,7 +464,7 @@ module.exports = {
     const skill = C.SKILLS.find((s) => s.id === id);
     if (!skill || p.sp <= 0) return;
     const rank = p.skills[id] || 0;
-    if (rank >= skill.max) return this.msg(p, `${skill.name} ist schon auf Maximum.`);
+    if (rank >= skill.max) return this.msg(p, '{skill} ist schon auf Maximum.', { skill: skill.name });
     p.skills[id] = rank + 1;
     p.sp--;
     const hpFrac = p.hp / p.maxHp;

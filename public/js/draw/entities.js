@@ -7,6 +7,7 @@ import { drawItemIcon, drawWeapon, drawGun, gearColors } from './items.js';
 import { art, artMisses } from '../assets.js';
 import { isAllied, snap, placementError, structSize } from '../rules.js';
 import { bubbles } from '../chat.js';
+import { t } from '../i18n.js';
 
 const SKIN = '#f0c8a0', SKIN_OTHER = '#e8bc92';
 
@@ -132,7 +133,7 @@ export function drawBuildGhost() {
   ctx.font = 'bold 13px Segoe UI, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(255,255,255,0.75)';
-  ctx.fillText('[R] drehen', g.x, g.y + g.hh + 18);
+  ctx.fillText(t('[R] drehen'), g.x, g.y + g.hh + 18);
   if (type === 'turret') {
     ctx.beginPath();
     ctx.arc(g.x, g.y, cfg.STRUCTURES.turret.levels[0].range, 0, TAU);

@@ -3,6 +3,7 @@
 
 import { cfg, me, myId, structs } from './state.js';
 import { world, resourcesIn, resScale } from './world.js';
+import { t } from './i18n.js';
 
 export const canAfford = (cost) => !!me && Object.entries(cost).every(([k, v]) => (me.res[k] || 0) >= v);
 
@@ -67,11 +68,11 @@ export function snap(type, x, y, rot = 0) {
 // Warum ein Gebäude-Typ gerade gar nicht gebaut werden kann (fürs Baumenü) – oder null
 export function buildBlocker(type) {
   const def = cfg.STRUCTURES[type];
-  if (type === 'core') return me.core ? 'Bereits gebaut' : null;
-  if (def.anywhere) return def.limit && (me.counts[type] || 0) >= def.limit ? `Limit erreicht (${def.limit}/${def.limit})` : null;
-  if (!me.core) return 'Basis-Kern nötig';
-  if (def.limit && (me.counts[type] || 0) >= def.limit) return `Limit erreicht (${def.limit}/${def.limit})`;
-  if (me.count >= me.max) return 'Gebäude-Limit – Kern upgraden';
+  if (type === 'core') return me.core ? t('Bereits gebaut') : null;
+  if (def.anywhere) return def.limit && (me.counts[type] || 0) >= def.limit ? t('Limit erreicht ({n}/{n})', { n: def.limit }) : null;
+  if (!me.core) return t('Basis-Kern nötig');
+  if (def.limit && (me.counts[type] || 0) >= def.limit) return t('Limit erreicht ({n}/{n})', { n: def.limit });
+  if (me.count >= me.max) return t('Gebäude-Limit – Kern upgraden');
   return null;
 }
 

@@ -17,6 +17,7 @@ import { drawCharacter } from './character.js';
 import { panels } from './panels.js';
 import { artAt } from '../assets.js';
 import { woodPanel, parchment, segmentBar, woodButton, WOOD, WOOD_DARK, PARCHMENT, PARCHMENT_DARK, INK, INK_LIGHT, CREAM } from './theme.js';
+import { t } from '../i18n.js';
 
 // Statusbrett unten links: so hoch, darüber beginnt der Chat (chat.js)
 export const STATUS_H = 142, STATUS_W = 300;
@@ -45,20 +46,20 @@ export function drawHud() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (!me.dead) ui.spawnChoice = null; // Wahl im Todesbildschirm gilt nur bis zum Aufwachen
   const toastY = drawSurvivalTime();
-  toasts.forEach((t, i) => {
-    ctx.globalAlpha = Math.min(1, t.life);
-    text(t.text, W / 2, toastY + i * 26, { size: 17, bold: true, align: 'center', color: '#fff' });
+  toasts.forEach((m, i) => {
+    ctx.globalAlpha = Math.min(1, m.life);
+    text(m.text, W / 2, toastY + i * 26, { size: 17, bold: true, align: 'center', color: '#fff' });
     ctx.globalAlpha = 1;
   });
   drawFirstSpawnHint(toastY + toasts.length * 26 + 4);
-  text('[Esc] Menü', 16, 26, { size: 12, color: 'rgba(255,255,255,0.45)' });
+  text(t('[Esc] Menü'), 16, 26, { size: 12, color: 'rgba(255,255,255,0.45)' });
   drawStatus();
   drawHotbar();
   drawMinimap();
   drawChatLog();
 
   if (!me.core && !me.dead) {
-    const hint = ui.selected === 1 && ui.buildType === 'core' ? 'Klicke auf einen freien Platz, um deine Basis zu gründen' : 'Öffne das Baumenü [B] und platziere deinen Basis-Kern';
+    const hint = t(ui.selected === 1 && ui.buildType === 'core' ? 'Klicke auf einen freien Platz, um deine Basis zu gründen' : 'Öffne das Baumenü [B] und platziere deinen Basis-Kern');
     text(hint, W / 2, H - 150, { size: 17, bold: true, align: 'center', color: '#ffe08a' });
   }
   if (hovered) drawStructureTooltip(hovered);
@@ -76,16 +77,16 @@ export function drawHud() {
   if (me.dead) {
     ctx.fillStyle = 'rgba(40,0,0,0.45)';
     ctx.fillRect(0, 0, W, H);
-    text('Du wurdest überrannt!', W / 2, H / 2 - 10, { size: 40, bold: true, align: 'center', color: '#ff6b6b' });
+    text(t('Du wurdest überrannt!'), W / 2, H / 2 - 10, { size: 40, bold: true, align: 'center', color: '#ff6b6b' });
     const buttons = deathButtons();
     if (!buttons.length) {
-      text(`Du wachst in ${Math.ceil(me.rt)} s irgendwo in der Welt auf`, W / 2, H / 2 + 28, { size: 18, align: 'center' });
-      text('Tipp: Lege einen Schlafsack (Baumenü [B]), um dort aufzuwachen.', W / 2, H / 2 + 54, { size: 14, align: 'center', color: '#ffd9a0' });
+      text(t('Du wachst in {n} s irgendwo in der Welt auf', { n: Math.ceil(me.rt) }), W / 2, H / 2 + 28, { size: 18, align: 'center' });
+      text(t('Tipp: Lege einen Schlafsack (Baumenü [B]), um dort aufzuwachen.'), W / 2, H / 2 + 54, { size: 14, align: 'center', color: '#ffd9a0' });
     } else {
-      text(me.rt > 0 ? `Wo willst du aufwachen? (frühestens in ${Math.ceil(me.rt)} s)` : 'Wo willst du aufwachen?', W / 2, H / 2 + 28, { size: 18, align: 'center' });
+      text(me.rt > 0 ? t('Wo willst du aufwachen? (frühestens in {n} s)', { n: Math.ceil(me.rt) }) : t('Wo willst du aufwachen?'), W / 2, H / 2 + 28, { size: 18, align: 'center' });
       for (const b of buttons) {
         const chosen = ui.spawnChoice === b.id, ready = !b.wait;
-        woodButton(b.rect, b.wait ? `${b.label} · frei in ${b.wait} s` : b.label, ready && inRect(mouse.x, mouse.y, b.rect), chosen ? '#4f6b2a' : ready ? undefined : '#4a3a2a');
+        woodButton(b.rect, b.wait ? t('{label} · frei in {n} s', { label: b.label, n: b.wait }) : b.label, ready && inRect(mouse.x, mouse.y, b.rect), chosen ? '#4f6b2a' : ready ? undefined : '#4a3a2a');
       }
     }
   }
@@ -94,8 +95,8 @@ export function drawHud() {
 // Todesbildschirm: ein Knopf pro Schlafsack (me.sb: [id, x, y, Sekunden bis frei]) und "Irgendwo"
 export function deathButtons() {
   if (!me || !me.dead || !me.sb || !me.sb.length) return [];
-  const opts = me.sb.map(([id, , , wait], i) => ({ id, label: `🛏 Schlafsack ${i + 1}`, wait }));
-  opts.push({ id: 0, label: '🎲 Irgendwo', wait: 0 });
+  const opts = me.sb.map(([id, , , wait], i) => ({ id, label: t('🛏 Schlafsack {n}', { n: i + 1 }), wait }));
+  opts.push({ id: 0, label: t('🎲 Irgendwo'), wait: 0 });
   const w = 230, h = 40, gap = 12, total = opts.length * w + (opts.length - 1) * gap, x0 = Math.round(W / 2 - total / 2);
   return opts.map((o, i) => ({ ...o, rect: { x: x0 + i * (w + gap), y: Math.round(H / 2 + 50), w, h } }));
 }
@@ -119,8 +120,8 @@ function drawFirstSpawnHint(y) {
   const w = 430, h = 64, x = W / 2 - w / 2;
   ctx.globalAlpha = Math.min(1, age * 2, (HINT_TIME - age) / 1.5);
   woodPanel(x, y, w, h, 10);
-  text('Willkommen! Alle Tasten & Hilfe findest du im Menü [Esc].', W / 2, y + 27, { size: 14, bold: true, align: 'center', color: CREAM });
-  text('Tipp: Lege einen Schlafsack (Baumenü [B]) – dort wachst du nach dem Tod auf.', W / 2, y + 47, { size: 12, align: 'center', color: 'rgba(243,226,192,0.75)' });
+  text(t('Willkommen! Alle Tasten & Hilfe findest du im Menü [Esc].'), W / 2, y + 27, { size: 14, bold: true, align: 'center', color: CREAM });
+  text(t('Tipp: Lege einen Schlafsack (Baumenü [B]) – dort wachst du nach dem Tod auf.'), W / 2, y + 47, { size: 12, align: 'center', color: 'rgba(243,226,192,0.75)' });
   ctx.globalAlpha = 1;
 }
 
@@ -136,16 +137,16 @@ function drawSurvivalTime() {
   const tw = ctx.measureText(time).width;
   artAt('ui/hourglass', W / 2 - tw / 2 - 4, 32, 18);
   text(time, W / 2 + 9, 38, { size: 19, bold: true, align: 'center', color: CREAM });
-  text(alive >= best && best > 60 ? '★ neuer Rekord' : `überlebt · Rekord ${fmtDuration(best)}`, W / 2, 54, {
+  text(alive >= best && best > 60 ? t('★ neuer Rekord') : t('überlebt · Rekord {time}', { time: fmtDuration(best) }), W / 2, 54, {
     size: 11, align: 'center', color: alive >= best && best > 60 ? '#ffd76a' : 'rgba(243,226,192,0.65)',
   });
 
   let badge = null;
   if (me.up && me.up.d) {
     const blink = Math.floor(now * 2) % 2 === 0;
-    badge = ['⚠ Deine Basis verfällt – Holz/Stein/Gold in den Basis-Kern legen [F]', blink ? 'rgba(140,30,20,0.9)' : 'rgba(110,25,18,0.9)', '#ffd9d0'];
-  } else if (me.prot > 0) badge = [`🛡 Spawnschutz – noch ${fmtClock(me.prot)}`, 'rgba(40,90,130,0.85)', '#cfeeff'];
-  else if (me.calm > 0) badge = [`🌙 Ruhige erste Nacht – wenige Gegner (${fmtClock(me.calm)})`, 'rgba(50,50,100,0.85)', '#d6d9ff'];
+    badge = [t('⚠ Deine Basis verfällt – Holz/Stein/Gold in den Basis-Kern legen [F]'), blink ? 'rgba(140,30,20,0.9)' : 'rgba(110,25,18,0.9)', '#ffd9d0'];
+  } else if (me.prot > 0) badge = [t('🛡 Spawnschutz – noch {time}', { time: fmtClock(me.prot) }), 'rgba(40,90,130,0.85)', '#cfeeff'];
+  else if (me.calm > 0) badge = [t('🌙 Ruhige erste Nacht – wenige Gegner ({time})', { time: fmtClock(me.calm) }), 'rgba(50,50,100,0.85)', '#d6d9ff'];
   if (!badge) return 92;
 
   const [label, background, color] = badge;
@@ -208,12 +209,12 @@ function drawStatus() {
 
   artAt('ui/base', x + 26, py + 33, 14);
   if (me.core) {
-    const base = `Lv ${me.core[3] + 1} · ${me.count}/${me.max} Gebäude · `;
+    const base = t('Lv {lv} · {n}/{max} Gebäude · ', { lv: me.core[3] + 1, n: me.count, max: me.max });
     text(base, x + 37, py + 38, { size: 12, color: INK_LIGHT });
-    const [supply, color] = !me.up ? ['', ''] : me.up.d ? ['⚠ Verfall!', '#b02a1a'] : [supplyText(me.up), me.up.n < 2 ? '#a5520e' : INK_LIGHT];
+    const [supply, color] = !me.up ? ['', ''] : me.up.d ? [t('⚠ Verfall!'), '#b02a1a'] : [supplyText(me.up), me.up.n < 2 ? '#a5520e' : INK_LIGHT];
     ctx.font = '12px Segoe UI, sans-serif';
     text(supply, x + 37 + ctx.measureText(base).width, py + 38, { size: 12, bold: true, color });
-  } else text('Noch keine Basis – Baumenü [B]', x + 37, py + 38, { size: 12, bold: true, color: '#a5401e' });
+  } else text(t('Noch keine Basis – Baumenü [B]'), x + 37, py + 38, { size: 12, bold: true, color: '#a5401e' });
 }
 
 // ---------- Hotbar ----------
@@ -254,7 +255,7 @@ function drawHotbar() {
     const kinds = cfg.AMMO[me.stats.ammo].types.filter((t) => (me.res[t.item] || 0) > 0).length;
     if (kinds > 1) text(`[R] ${itemName(me.ammo)}`, first.x, first.y - 40, { size: 11, bold: true, color: '#ffd76a' });
   }
-  if (ui.inv) text('Item auf einen Slot ziehen oder mit Maus drauf 1–6 drücken · Rechtsklick leert', W / 2, first.y - 52, { size: 11, align: 'center', color: '#cfd8c0' });
+  if (ui.inv) text(t('Item auf einen Slot ziehen oder mit Maus drauf 1–6 drücken · Rechtsklick leert'), W / 2, first.y - 52, { size: 11, align: 'center', color: '#cfd8c0' });
 
   drawBuildButton(last, slotBackground);
   drawXpBar(rects);
@@ -278,7 +279,7 @@ function drawBuildButton(r, slotBackground) {
   }
   ctx.restore();
   text('B', r.x + 5, r.y + 14, { size: 11, color: INK_LIGHT, bold: true });
-  text(type ? cfg.STRUCTURES[type].name : 'Bauen', r.x + r.w / 2, r.y + r.h - 6, { size: 11, align: 'center', color: INK });
+  text(type ? cfg.STRUCTURES[type].name : t('Bauen'), r.x + r.w / 2, r.y + r.h - 6, { size: 11, align: 'center', color: INK });
   if (type) {
     const cost = cfg.STRUCTURES[type].levels[0].cost;
     text(fmtCost(cost), r.x + r.w / 2, r.y + r.h + 20, { size: 11, color: canAfford(cost) ? '#e8e8e8' : '#ff8a7a', align: 'center' });
@@ -291,8 +292,8 @@ function drawXpBar(rects) {
   rrect(x, y, w, 8, 4, WOOD_DARK, WOOD, 1.5);
   rrect(x + 1.5, y + 1.5, Math.max(0, (w - 3) * Math.min(1, me.xp / me.xpNext)), 5, 2.5, '#7fc4ff');
   text(`Lv ${me.lvl}`, x - 10, y + 8, { size: 13, bold: true, align: 'right', color: '#ffd76a' });
-  text(`${me.xp}/${me.xpNext} EP`, x + w + 10, y + 8, { size: 11, color: '#cfd8c0' });
-  if (me.sp > 0) text(`+${me.sp} Skillpunkt${me.sp > 1 ? 'e' : ''} [K]`, x + w / 2, y - 5, { size: 12, bold: true, align: 'center', color: '#ffd76a' });
+  text(t('{n}/{max} EP', { n: me.xp, max: me.xpNext }), x + w + 10, y + 8, { size: 11, color: '#cfd8c0' });
+  if (me.sp > 0) text(t(me.sp > 1 ? '+{n} Skillpunkte [K]' : '+{n} Skillpunkt [K]', { n: me.sp }), x + w / 2, y - 5, { size: 12, bold: true, align: 'center', color: '#ffd76a' });
 }
 
 // ---------- Minimap: runder Kompass oben rechts ----------
@@ -342,12 +343,14 @@ function drawMinimap() {
   circle(cx, cy, R + 4, null, WOOD, 8);
   circle(cx, cy, R + 8.5, null, WOOD_DARK, 2);
   circle(cx, cy, R, null, WOOD_DARK, 1.5);
-  for (const [label, ax, ay] of [['N', 0, -1], ['O', 1, 0], ['S', 0, 1], ['W', -1, 0]]) {
-    const north = label === 'N', px = cx + ax * (R + 4), py = cy + ay * (R + 4);
+  // Himmelsrichtungen als ein Text, damit einzelne Buchstaben nicht mit anderen Texten verwechselt werden
+  const [cN, cE, cS, cW] = t('N O S W').split(' ');
+  for (const [label, ax, ay] of [[cN, 0, -1], [cE, 1, 0], [cS, 0, 1], [cW, -1, 0]]) {
+    const north = label === cN, px = cx + ax * (R + 4), py = cy + ay * (R + 4);
     if (north) circle(px, py, 9, PARCHMENT, PARCHMENT_DARK, 2);
     text(label, px, py + 4, { size: north ? 11 : 9, bold: true, align: 'center', color: north ? '#a5401e' : CREAM });
   }
-  text('[M] Karte', cx, cy + R + 24, { size: 11, align: 'center', color: 'rgba(255,255,255,0.55)' });
+  text(t('[M] Karte'), cx, cy + R + 24, { size: 11, align: 'center', color: 'rgba(255,255,255,0.55)' });
 }
 
 function drawMinimapTerrain(mx, my, k) {

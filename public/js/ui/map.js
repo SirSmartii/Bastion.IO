@@ -5,6 +5,7 @@ import { TAU } from '../constants.js';
 import { circle, rrect, text, inRect } from '../draw/primitives.js';
 import { world, worldVersion, groundCanvas } from '../world.js';
 import { teammates } from '../rules.js';
+import { t } from '../i18n.js';
 
 // Statischer Teil (Boden, Wege, Seen, Städte) wird nur bei neuer Größe oder neuer Welt neu gezeichnet
 const cache = document.createElement('canvas');
@@ -70,8 +71,8 @@ export function draw() {
   ctx.fillStyle = 'rgba(5,8,4,0.6)';
   ctx.fillRect(0, 0, W, H);
   rrect(x - 14, y - 46, S + 28, S + 60, 14, 'rgba(18,24,14,0.96)', '#4b5d38', 3);
-  text('🗺️ Weltkarte', x, y - 18, { size: 18, bold: true, color: '#f2d27a' });
-  text('[M] schließen', x + S, y - 18, { size: 12, color: '#a8b597', align: 'right' });
+  text(t('🗺️ Weltkarte'), x, y - 18, { size: 18, bold: true, color: '#f2d27a' });
+  text(t('[M] schließen'), x + S, y - 18, { size: 12, color: '#a8b597', align: 'right' });
   ctx.drawImage(cache, x, y, S, S);
   drawSectors(x, y, S);
 
@@ -98,10 +99,10 @@ export function draw() {
 
   // Kopfzeile: eigenes Planquadrat + Planquadrat unter der Maus
   const sector = (wx, wy) => 'ABCDEFGHIJ'[Math.min(9, Math.floor(wx / (WS / 10)))] + (Math.min(9, Math.floor(wy / (WS / 10))) + 1);
-  let info = `Du: ${sector(me.x, me.y)}`;
+  let info = t('Du: {s}', { s: sector(me.x, me.y) });
   if (inRect(mouse.x, mouse.y, { x, y, w: S, h: S })) {
     const wx = (mouse.x - x) / k, wy = (mouse.y - y) / k;
-    info += `  ·  Maus: ${sector(wx, wy)} (${Math.round(Math.hypot(wx - me.x, wy - me.y))} entfernt)`;
+    info += t('  ·  Maus: {s} ({n} entfernt)', { s: sector(wx, wy), n: Math.round(Math.hypot(wx - me.x, wy - me.y)) });
   }
   text(info, x + S / 2, y - 18, { size: 12, align: 'center', color: '#cfd8c0' });
 }

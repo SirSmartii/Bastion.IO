@@ -76,8 +76,9 @@ module.exports = {
     }
   },
 
-  msg(p, text) { p.conn.send(JSON.stringify({ t: 'm', text })); },
-  broadcastMsg(text) { for (const p of this.players.values()) this.msg(p, text); },
+  // text: deutsche Vorlage mit {Platzhaltern}, v: deren Werte – der Client übersetzt (public/js/i18n.js)
+  msg(p, text, v) { p.conn.send(JSON.stringify(v ? { t: 'm', text, v } : { t: 'm', text })); },
+  broadcastMsg(text, v) { for (const p of this.players.values()) this.msg(p, text, v); },
 
   // ---------- Ausgang ----------
 

@@ -7,6 +7,7 @@ import { drawItemIcon, gearName, gearLines, rarityOf, gearBadge, fmtStats, fmtMo
 import { RES_ICON } from '../constants.js';
 import { send } from '../net.js';
 import { itemTooltip } from './tooltip.js';
+import { t, dec } from '../i18n.js';
 
 const TILE = 52, GAP = 6, COLS = 4;
 const ODDS_COLORS = ['#7ed957', '#8a8f86', '#f0a040', '#e05555'];
@@ -102,18 +103,18 @@ const button = (r, label, ok, color = '#7fae45') => {
 };
 
 export function drawUpgrade(L, x, y) {
-  text('Deine Ausrüstung', x, y + 14, { size: 13, bold: true, color: '#e9e0d0' });
+  text(t('Deine Ausrüstung'), x, y + 14, { size: 13, bold: true, color: '#e9e0d0' });
   let hover = null;
-  for (const t of L.tiles) {
-    const selected = L.sel && t.src === L.sel.src && t.i === L.sel.i, over = inRect(mouse.x, mouse.y, t.rect);
-    if (over) hover = t;
-    rrect(t.rect.x, t.rect.y, TILE, TILE, 8, selected ? 'rgba(255,215,106,0.22)' : over ? 'rgba(255,230,140,0.12)' : 'rgba(0,0,0,0.35)',
+  for (const tile of L.tiles) {
+    const selected = L.sel && tile.src === L.sel.src && tile.i === L.sel.i, over = inRect(mouse.x, mouse.y, tile.rect);
+    if (over) hover = tile;
+    rrect(tile.rect.x, tile.rect.y, TILE, TILE, 8, selected ? 'rgba(255,215,106,0.22)' : over ? 'rgba(255,230,140,0.12)' : 'rgba(0,0,0,0.35)',
       selected ? '#ffd76a' : 'rgba(255,255,255,0.1)', 2);
-    drawItemIcon(t.item, t.rect.x + TILE / 2, t.rect.y + TILE / 2, 34);
-    gearBadge(t.rect, t.d);
-    if (t.src === 'eq') text('E', t.rect.x + TILE - 6, t.rect.y + TILE - 5, { size: 10, bold: true, color: '#9fe870', align: 'right' });
+    drawItemIcon(tile.item, tile.rect.x + TILE / 2, tile.rect.y + TILE / 2, 34);
+    gearBadge(tile.rect, tile.d);
+    if (tile.src === 'eq') text('E', tile.rect.x + TILE - 6, tile.rect.y + TILE - 5, { size: 10, bold: true, color: '#9fe870', align: 'right' });
   }
-  if (!L.tiles.length) text('Keine Ausrüstung im Inventar.', x, y + 46, { size: 12, color: '#a8977f' });
+  if (!L.tiles.length) text(t('Keine Ausrüstung im Inventar.'), x, y + 46, { size: 12, color: '#a8977f' });
   if (hover) itemTooltip(hover.item, [], hover.d);
 
   const sel = L.sel;
@@ -123,7 +124,7 @@ export function drawUpgrade(L, x, y) {
   drawItemIcon(sel.item, dx + 26, y + 30, 40);
   text(gearName(sel.item, d), dx + 54, y + 24, { size: 16, bold: true, color: R.color });
   text(fmtStats(def, d), dx + 54, y + 42, { size: 11, color: '#cfd8c0' });
-  text(sel.src === 'eq' ? 'angelegt' : 'im Inventar', dx + dw - 8, y + 24, { size: 11, color: sel.src === 'eq' ? '#9fe870' : '#a8977f', align: 'right' });
+  text(t(sel.src === 'eq' ? 'angelegt' : 'im Inventar'), dx + dw - 8, y + 24, { size: 11, color: sel.src === 'eq' ? '#9fe870' : '#a8977f', align: 'right' });
 
   // Seltenheit, Boni und Fluch – mit Umschmieden-Knöpfen
   gearLines(d).forEach(([line, color], k) => text(line.trim(), dx + 4, y + 72 + k * 20, { size: 13, bold: k === 0, color }));
@@ -132,25 +133,27 @@ export function drawUpgrade(L, x, y) {
     const over = inRect(mouse.x, mouse.y, b.rect);
     rrect(b.rect.x, b.rect.y, b.rect.w, b.rect.h, 5, over && canRf ? '#c98a3c' : 'rgba(255,255,255,0.08)', 'rgba(255,255,255,0.2)', 1);
     text(b.k === -1 ? '✕' : '↻', b.rect.x + b.rect.w / 2, b.rect.y + 14, { size: 13, bold: true, align: 'center', color: canRf ? '#f2d27a' : '#777' });
-    if (over) itemTooltip(sel.item, [[b.k === -1 ? 'Fluch brechen (Boni verlieren ihre Verstärkung)' : 'Diesen Bonus neu würfeln', '#ffd76a']], d);
+    if (over) itemTooltip(sel.item, [[t(b.k === -1 ? 'Fluch brechen (Boni verlieren ihre Verstärkung)' : 'Diesen Bonus neu würfeln'), '#ffd76a']], d);
   }
   if (d && (d.m.length || d.c)) {
     const ry = y + 92 + (d.m.length + (d.c ? 1 : 0)) * 20;
-    text('↻ / ✕ Umschmieden:', dx + 4, ry, { size: 12, color: '#a8977f' });
-    costText(rf, dx + 122, ry);
-  } else text('Gewöhnlich – keine Boni zum Umschmieden.', dx + 4, y + 112, { size: 12, color: '#7c7468' });
+    const label = t('↻ / ✕ Umschmieden:');
+    text(label, dx + 4, ry, { size: 12, color: '#a8977f' });
+    costText(rf, dx + 14 + ctx.measureText(label).width, ry);
+  } else text(t('Gewöhnlich – keine Boni zum Umschmieden.'), dx + 4, y + 112, { size: 12, color: '#7c7468' });
 
   // Verbessern
   const by = y + 196, target = ((d && d.u) || 0) + 1;
   if (target > cfg.GEAR.upgrade.length) {
-    text(`Höchste Stufe erreicht (+${d.u})`, dx + 4, by + 20, { size: 14, bold: true, color: '#ffd76a' });
+    text(t('Höchste Stufe erreicht (+{n})', { n: d.u }), dx + 4, by + 20, { size: 14, bold: true, color: '#ffd76a' });
   } else {
     const step = cfg.GEAR.upgrade[target - 1], ward = !!ui.upgWard && (me.res.ward || 0) > 0 && step.odds[3] > 0;
     // Stahl-Ausrüstung und besser: Stahl statt Eisen (wie upgradeCost in server/game/gear.js)
     const cost = { ...step.cost };
     if ((def.tier || 0) >= cfg.GEAR.steelFrom && cost.iron) { cost.steel = cost.iron; delete cost.iron; }
-    text(`Verbessern auf +${target}:`, dx + 4, by + 4, { size: 13, bold: true, color: '#f2e2c4' });
-    costText(cost, dx + 130, by + 4);
+    const upLabel = t('Verbessern auf +{n}:', { n: target });
+    text(upLabel, dx + 4, by + 4, { size: 13, bold: true, color: '#f2e2c4' });
+    costText(cost, dx + 14 + ctx.measureText(upLabel).width, by + 4);
     // Chancen als Leiste
     const odds = upgradeOdds(target, ward), barW = dw - 8;
     let bx = dx + 4;
@@ -159,21 +162,21 @@ export function drawUpgrade(L, x, y) {
       rrect(bx, by + 14, Math.max(2, (barW * v) / 100), 12, 3, ODDS_COLORS[k]);
       bx += (barW * v) / 100;
     });
-    const label = odds.map((v, k) => (v ? `${String(v).replace('.', ',')} % ${ODDS_NAMES[k]}` : null)).filter(Boolean).join(' · ');
+    const label = odds.map((v, k) => (v ? `${dec(v)} % ${t(ODDS_NAMES[k])}` : null)).filter(Boolean).join(' · ');
     text(label, dx + 4, by + 44, { size: 11, color: '#cfc4b0' });
     const wardBtn = L.buttons.find((b) => b.act === 'ward');
     if (wardBtn) {
       rrect(wardBtn.rect.x + 4, wardBtn.rect.y + 3, 14, 14, 3, ward ? '#ffd76a' : 'rgba(0,0,0,0.4)', '#ffd76a', 1.5);
-      text(`Schutzsiegel benutzen (${me.res.ward}) – verhindert Zerstören`, wardBtn.rect.x + 24, wardBtn.rect.y + 15, { size: 12, color: '#ffd76a' });
+      text(t('Schutzsiegel benutzen ({n}) – verhindert Zerstören', { n: me.res.ward }), wardBtn.rect.x + 24, wardBtn.rect.y + 15, { size: 12, color: '#ffd76a' });
     }
     const upg = L.buttons.find((b) => b.act === 'upg');
-    button(upg.rect, `Verbessern +${target}`, have(cost));
+    button(upg.rect, t('Verbessern +{n}', { n: target }), have(cost));
   }
   const salv = L.buttons.find((b) => b.act === 'salv');
   if (salv) {
     const armed = now - salvageArmed < 2;
-    button(salv.rect, armed ? 'Wirklich?' : 'Zerlegen', true, armed ? '#e05555' : '#a07850');
+    button(salv.rect, t(armed ? 'Wirklich?' : 'Zerlegen'), true, armed ? '#e05555' : '#a07850');
   }
   const lvl = practiceLevel('smithing');
-  text(`🔨 Schmieden Stufe ${lvl}${lvl ? ' – senkt das Risiko' : ''}`, dx + 4, y + 334, { size: 11, color: "#a8977f" });
+  text(t(lvl ? '🔨 Schmieden Stufe {n} – senkt das Risiko' : '🔨 Schmieden Stufe {n}', { n: lvl }), dx + 4, y + 334, { size: 11, color: "#a8977f" });
 }

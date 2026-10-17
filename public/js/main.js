@@ -28,6 +28,7 @@ import { perf, frameStart, mark, frameEnd, drawPerf } from './perf.js';
 import { renderTime, sampleAt } from './interp.js';
 import { advance as advancePrediction, predictedPosition } from './predict.js';
 import './menu.js';
+import { t } from './i18n.js';
 import { loadAssets } from './assets.js';
 
 // Grafiken laden (assets/manifest.json listet alle Dateien); bis dahin fehlen sie für ein paar Bilder
@@ -242,8 +243,8 @@ function drawInteractionPrompts() {
   const container = !me.ch && ui.panel !== 'forge' ? nearestContainer() : null;
   if (container) {
     const { s } = container, label = { core: '[F] Kern-Lager', furnace: '[F] Schmelzofen', storage: '[F] Truhe', campfire: '[F] Lagerfeuer', tanner: '[F] Gerbgestell' }[s.type];
-    drawPrompt(label, s.x, s.y - structSize(s.type, s.rot).hh - 11);
-  } else if (!me.ch && ui.panel !== 'forge' && !nearForge() && nearWater()) drawPrompt(me.eq.weapon === 'rod' ? (me.fi !== undefined ? '🎣 stillhalten …' : '[F] Angeln') : '[F] Trinken', me.x, me.y - 64);
+    drawPrompt(t(label), s.x, s.y - structSize(s.type, s.rot).hh - 11);
+  } else if (!me.ch && ui.panel !== 'forge' && !nearForge() && nearWater()) drawPrompt(t(me.eq.weapon === 'rod' ? (me.fi !== undefined ? '🎣 stillhalten …' : '[F] Angeln') : '[F] Trinken'), me.x, me.y - 64);
   if (me.fi !== undefined) drawFishing();
-  if (ui.panel !== 'forge' && nearForge()) drawPrompt('[F] Schmiede', me.forge[1], me.forge[2] - 42);
+  if (ui.panel !== 'forge' && nearForge()) drawPrompt(t('[F] Schmiede'), me.forge[1], me.forge[2] - 42);
 }

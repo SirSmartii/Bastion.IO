@@ -122,12 +122,12 @@ module.exports = {
     if (def.hp) p.hp = clamp(p.hp + def.hp, 1, p.maxHp);
     p.eatT = this.now;
     this.events.push([Math.round(p.x), Math.round(p.y), 'eat', def.hp || 0, p.id, item]);
-    if (def.hp < 0) this.msg(p, `${C.ITEMS.names[item]} roh bekommt dir nicht – brate es lieber am Lagerfeuer.`);
+    if (def.hp < 0) this.msg(p, '{item} roh bekommt dir nicht – brate es lieber am Lagerfeuer.', { item: C.ITEMS.names[item] });
     // Wirkung auf Zeit (z. B. Eintopf: doppelte Regeneration)
     if (def.buff) {
       p.buffs = p.buffs || {};
       for (const [k, v] of Object.entries(def.buff)) if (k !== 't') p.buffs[k] = { v, until: this.now + def.buff.t };
-      this.msg(p, `${C.ITEMS.names[item]}: ${def.buff.regen ? 'doppelte Regeneration' : 'schnellere Ausdauer-Erholung'} für ${def.buff.t} s.`);
+      this.msg(p, def.buff.regen ? '{item}: doppelte Regeneration für {n} s.' : '{item}: schnellere Ausdauer-Erholung für {n} s.', { item: C.ITEMS.names[item], n: def.buff.t });
     }
   },
 
@@ -169,17 +169,17 @@ module.exports = {
     const eq = lookup(C.EQUIPMENT, item);
     if (eq) {
       if (p.equip[eq.slot] === item) return;
-      if (slot < 0) return this.msg(p, `${eq.name} ist nicht im Inventar.`);
+      if (slot < 0) return this.msg(p, '{name} ist nicht im Inventar.', { name: eq.name });
       return this.equip(p, slot);
     }
     if (lookup(C.ITEMS.food, item)) {
-      if (slot < 0) return this.msg(p, `Kein ${C.ITEMS.names[item]} im Inventar.`);
+      if (slot < 0) return this.msg(p, 'Kein {item} im Inventar.', { item: C.ITEMS.names[item] });
       return this.eat(p, slot);
     }
     const group = Object.keys(C.AMMO).find((g) => C.AMMO[g].types.some((t) => t.item === item));
     if (group) {
       p.ammoPref[group] = item;
-      this.msg(p, `Munition: ${C.ITEMS.names[item]} (${Inv.count(p.inv, item)})`);
+      this.msg(p, 'Munition: {item} ({n})', { item: C.ITEMS.names[item], n: Inv.count(p.inv, item) });
     }
   },
 
@@ -312,23 +312,23 @@ module.exports = {
     if (def.recipe.campfire) {
       const fire = [...this.statics.query(p.x, p.y, C.STRUCTURES.campfire.useRange)]
         .find((o) => o.kind === 's' && o.type === 'campfire' && o.active && this.allied(p, o.owner) && Math.hypot(o.x - p.x, o.y - p.y) <= C.STRUCTURES.campfire.useRange);
-      if (!fire) return this.msg(p, `${def.name} kochst du an einem brennenden Lagerfeuer.`);
-      if (!Inv.canAfford(p.inv, def.recipe.cost)) return this.msg(p, `Nicht genug Zutaten für ${def.name}.`);
+      if (!fire) return this.msg(p, '{name} kochst du an einem brennenden Lagerfeuer.', { name: def.name });
+      if (!Inv.canAfford(p.inv, def.recipe.cost)) return this.msg(p, 'Nicht genug Zutaten für {name}.', { name: def.name });
       Inv.pay(p.inv, def.recipe.cost);
       this.give(p, id, def.recipe.amount || 1, p.x, p.y);
       for (const [item, n] of Object.entries(def.recipe.returns || {})) this.give(p, item, n, p.x, p.y);
       this.events.push([Math.round(fire.x), Math.round(fire.y), 'up']);
       this.addXp(p, C.XP.craft);
-      return this.msg(p, `${def.name} gekocht!`);
+      return this.msg(p, '{name} gekocht!', { name: def.name });
     }
     // An der Schmiede alles bis zu ihrem Level; unterwegs nur einfache Rezepte (hand)
     const forge = p.forge;
     const atForge = !!forge && Math.hypot(forge.x - p.x, forge.y - p.y) <= C.STRUCTURES.forge.useRange;
     if (!atForge && !def.recipe.hand) {
-      return this.msg(p, forge ? 'Geh näher an deine Schmiede.' : `${def.name} kann nur an einer Schmiede hergestellt werden.`);
+      return forge ? this.msg(p, 'Geh näher an deine Schmiede.') : this.msg(p, '{name} kann nur an einer Schmiede hergestellt werden.', { name: def.name });
     }
-    if (atForge && !def.recipe.hand && forge.level + 1 < def.recipe.forge) return this.msg(p, `${def.name} braucht Schmiede Lv ${def.recipe.forge}.`);
-    if (!Inv.canAfford(p.inv, def.recipe.cost)) return this.msg(p, `Nicht genug Ressourcen für ${def.name}.`);
+    if (atForge && !def.recipe.hand && forge.level + 1 < def.recipe.forge) return this.msg(p, '{name} braucht Schmiede Lv {n}.', { name: def.name, n: def.recipe.forge });
+    if (!Inv.canAfford(p.inv, def.recipe.cost)) return this.msg(p, 'Nicht genug Ressourcen für {name}.', { name: def.name });
     Inv.pay(p.inv, def.recipe.cost);
     const n = def.recipe.amount || 1;
     // Ausrüstung wird als Einzelstück ausgewürfelt (Seltenheit & Boni)
@@ -340,7 +340,11 @@ module.exports = {
     this.addXp(p, C.XP.craft);
     const total = Object.values(def.recipe.cost).reduce((a, b) => a + b, 0);
     this.addPractice(p, 'smithing', 1 + Math.floor(total / 40));
-    const rarity = d ? ` (${C.GEAR.rarities[d.r].name}${d.c ? ', verflucht' : ''})` : '';
-    this.msg(p, equipment ? `${n > 1 ? `${n}× ` : ''}${def.name}${rarity} hergestellt! Ausrüsten im Charakterfenster [C].` : `${n}× ${def.name} hergestellt!`);
+    const v = { n, name: def.name, rarity: d ? C.GEAR.rarities[d.r].name : '' };
+    if (!equipment) return this.msg(p, '{n}× {name} hergestellt!', v);
+    const many = n > 1 ? '{n}× ' : '';
+    if (!d) return this.msg(p, many + '{name} hergestellt! Ausrüsten im Charakterfenster [C].', v); // ohne Seltenheit (Fackel, Angel …)
+    this.msg(p, d.c ? many + '{name} ({rarity}, verflucht) hergestellt! Ausrüsten im Charakterfenster [C].'
+      : many + '{name} ({rarity}) hergestellt! Ausrüsten im Charakterfenster [C].', v);
   },
 };

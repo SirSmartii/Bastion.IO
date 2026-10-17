@@ -20,10 +20,10 @@ module.exports = {
     return !!(other && p.team && other.team === p.team);
   },
 
-  teamMsg(team, text) {
+  teamMsg(team, text, v) {
     for (const id of team.members) {
       const member = this.players.get(id);
-      if (member) this.msg(member, text);
+      if (member) this.msg(member, text, v);
     }
   },
 
@@ -31,14 +31,14 @@ module.exports = {
     const target = this.players.get(targetId);
     if (!target || target === p) return;
     const team = this.teamOf(p);
-    if (target.team && target.team === p.team) return this.msg(p, `${target.name} ist schon in deinem Team.`);
-    if (target.team) return this.msg(p, `${target.name} ist bereits in einem Team.`);
-    if (team && team.members.length >= C.TEAM.maxSize) return this.msg(p, `Dein Team ist voll (max. ${C.TEAM.maxSize}).`);
+    if (target.team && target.team === p.team) return this.msg(p, '{name} ist schon in deinem Team.', { name: target.name });
+    if (target.team) return this.msg(p, '{name} ist bereits in einem Team.', { name: target.name });
+    if (team && team.members.length >= C.TEAM.maxSize) return this.msg(p, 'Dein Team ist voll (max. {n}).', { n: C.TEAM.maxSize });
     const previous = target.invites.get(p.id);
     if (previous !== undefined && this.now - previous < 5) return; // nicht spammen
     target.invites.set(p.id, this.now);
-    this.msg(target, `👥 ${p.name} lädt dich in ein Team ein – [T] zum Annehmen.`);
-    this.msg(p, `Einladung an ${target.name} gesendet.`);
+    this.msg(target, '👥 {name} lädt dich in ein Team ein – [T] zum Annehmen.', { name: p.name });
+    this.msg(p, 'Einladung an {name} gesendet.', { name: target.name });
   },
 
   // Einladung annehmen: Team des Einladenden beitreten (oder mit ihm ein neues gründen)
@@ -59,7 +59,7 @@ module.exports = {
     team.members.push(p.id);
     p.team = team.id;
     p.invites.clear();
-    this.teamMsg(team, `👥 ${p.name} ist ${team.name} beigetreten.`);
+    this.teamMsg(team, '👥 {name} ist {team} beigetreten.', { name: p.name, team: team.name });
   },
 
   // Verlassen; ein Team mit nur noch einem Mitglied löst sich auf
@@ -68,17 +68,17 @@ module.exports = {
     p.team = 0;
     if (!team) return;
     team.members = team.members.filter((id) => id !== p.id);
-    if (!silent) this.msg(p, `Du hast ${team.name} verlassen.`);
+    if (!silent) this.msg(p, 'Du hast {team} verlassen.', { team: team.name });
     if (team.members.length < 2) {
       for (const id of team.members) {
         const member = this.players.get(id);
-        if (member) { member.team = 0; this.msg(member, `${team.name} wurde aufgelöst.`); }
+        if (member) { member.team = 0; this.msg(member, '{team} wurde aufgelöst.', { team: team.name }); }
       }
       this.teams.delete(team.id);
       return;
     }
     if (team.leader === p.id) team.leader = team.members[0];
-    this.teamMsg(team, `👥 ${p.name} hat das Team verlassen.`);
+    this.teamMsg(team, '👥 {name} hat das Team verlassen.', { name: p.name });
   },
 
   // Nur der Anführer darf Mitglieder entfernen
@@ -86,9 +86,9 @@ module.exports = {
     const team = this.teamOf(p);
     const target = this.players.get(targetId);
     if (!team || team.leader !== p.id || !target || target === p || target.team !== team.id) return;
-    this.msg(target, `Du wurdest aus ${team.name} entfernt.`);
+    this.msg(target, 'Du wurdest aus {team} entfernt.', { team: team.name });
     this.leaveTeam(target, true);
-    if (this.teams.has(team.id)) this.teamMsg(team, `${target.name} wurde aus dem Team entfernt.`);
+    if (this.teams.has(team.id)) this.teamMsg(team, '{name} wurde aus dem Team entfernt.', { name: target.name });
   },
 
   // Normale Nachrichten hören nur Spieler in der Nähe; "/t …" geht an alle Teammitglieder

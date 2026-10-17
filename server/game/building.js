@@ -51,7 +51,7 @@ module.exports = {
     rot = (rot | 0) & 3;
     const { x, y, hw, hh } = this.snap(type, wx, wy, rot);
     const err = this.placementError(p, type, x, y, hw, hh);
-    if (err) return this.msg(p, err);
+    if (err) return Array.isArray(err) ? this.msg(p, err[0], err[1]) : this.msg(p, err);
 
     Inv.pay(p.inv, def.levels[0].cost);
     const s = this.createStructure(type, p.id, x, y, 0, rot);
@@ -79,7 +79,7 @@ module.exports = {
     if (type === 'campfire') this.msg(p, 'Lagerfeuer gebaut! Lege Holz und Rohes (Fleisch, Kartoffeln, Mais) hinein [F].');
   },
 
-  // Grund, warum hier nicht gebaut werden kann – oder null
+  // Grund, warum hier nicht gebaut werden kann – oder null (Text oder [Vorlage, Werte] für msg)
   placementError(p, type, x, y, hw, hh) {
     const def = C.STRUCTURES[type], W = C.WORLD_SIZE;
     if (x - hw < 0 || y - hh < 0 || x + hw > W || y + hh > W) return 'Außerhalb der Welt.';
@@ -91,7 +91,7 @@ module.exports = {
       }
     } else if (def.anywhere) {
       // Lagerfeuer & Co.: ohne Basis, nicht in fremden Basen
-      if (def.limit && (p.counts[type] || 0) >= def.limit) return `Maximal ${def.limit}× ${def.name}.`;
+      if (def.limit && (p.counts[type] || 0) >= def.limit) return ['Maximal {n}× {name}.', { n: def.limit, name: def.name }];
       for (const core of this.cores) {
         if (!this.allied(p, core.owner) && Math.hypot(core.x - x, core.y - y) < levelOf(core).radius) return 'Nicht in fremden Basen.';
       }
@@ -99,7 +99,7 @@ module.exports = {
       if (!p.core) return 'Baue zuerst deinen Basis-Kern (Baumenü [B]).';
       if (Math.hypot(x - p.core.x, y - p.core.y) > levelOf(p.core).radius) return 'Nur innerhalb deines Basis-Radius.';
       if (p.count >= levelOf(p.core).maxStructures) return 'Gebäude-Limit erreicht – Kern upgraden!';
-      if (def.limit && (p.counts[type] || 0) >= def.limit) return `Maximal ${def.limit}× ${def.name}.`;
+      if (def.limit && (p.counts[type] || 0) >= def.limit) return ['Maximal {n}× {name}.', { n: def.limit, name: def.name }];
     }
     if (!Inv.canAfford(p.inv, def.levels[0].cost)) return 'Nicht genug Ressourcen im Inventar.';
     if (this.cityAt(x, y, C.MAP.noBuildMargin + Math.max(hw, hh))) return 'In Städten kann nicht gebaut werden.';
@@ -150,7 +150,7 @@ module.exports = {
   repair(p, s) {
     if (s.hp >= s.maxHp) return;
     const cost = 2 + s.level * 2;
-    if (Inv.count(p.inv, 'wood') < cost) return this.msg(p, `Reparieren kostet ${cost} Holz.`);
+    if (Inv.count(p.inv, 'wood') < cost) return this.msg(p, 'Reparieren kostet {n} Holz.', { n: cost });
     Inv.remove(p.inv, 'wood', cost);
     s.hp = Math.min(s.maxHp, s.hp + s.maxHp * 0.1);
     this.events.push([s.x, s.y, 'fix']);

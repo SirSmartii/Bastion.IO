@@ -23,11 +23,11 @@ module.exports = {
     const def = C.EQUIPMENT[p.equip.weapon];
     if (!def || !def.ammo) return;
     const owned = C.AMMO[def.ammo].types.filter((t) => Inv.count(p.inv, t.item) > 0);
-    if (owned.length < 2) return this.msg(p, owned.length ? `Nur ${C.ITEMS.names[owned[0].item]} vorhanden.` : 'Keine Munition.');
+    if (owned.length < 2) return owned.length ? this.msg(p, 'Nur {item} vorhanden.', { item: C.ITEMS.names[owned[0].item] }) : this.msg(p, 'Keine Munition.');
     const current = this.ammoFor(p, def.ammo);
     const next = owned[(owned.indexOf(current) + 1) % owned.length];
     p.ammoPref[def.ammo] = next.item;
-    this.msg(p, `Munition: ${C.ITEMS.names[next.item]} (${Inv.count(p.inv, next.item)})`);
+    this.msg(p, 'Munition: {item} ({n})', { item: C.ITEMS.names[next.item], n: Inv.count(p.inv, next.item) });
   },
 
   // ---------- Angriffe ----------
@@ -39,7 +39,7 @@ module.exports = {
     if (!ammo) {
       if (this.now - p.ammoMsgT > 2) {
         p.ammoMsgT = this.now;
-        this.msg(p, `Keine Munition (${C.AMMO[def.ammo].label})! In der Schmiede herstellen.`);
+        this.msg(p, 'Keine Munition ({ammo})! In der Schmiede herstellen.', { ammo: C.AMMO[def.ammo].label });
       }
       return;
     }
@@ -121,7 +121,7 @@ module.exports = {
       if (this.now - p.fullMsgT > 2) {
         p.fullMsgT = this.now;
         const need = Object.values(C.MATERIALS).find((m) => m.tier === def.tool);
-        this.msg(p, `Zu hart – dafür brauchst du mindestens eine Axt oder Spitzhacke aus ${need ? need.name : 'besserem Material'}.`);
+        this.msg(p, 'Zu hart – dafür brauchst du mindestens eine Axt oder Spitzhacke aus {mat}.', { mat: need ? need.name : 'besserem Material' });
       }
       return;
     }

@@ -85,8 +85,8 @@ class Game {
     this.tick++;
     if (this.isNight !== wasNight) {
       this.broadcastMsg(this.isNight
-        ? `Nacht ${this.day} bricht herein – die Untoten werden schneller, aggressiver und zahlreicher!`
-        : `Tag ${this.day} – du hast die Nacht überlebt! Die Untoten der Nacht zerfallen im Morgenlicht.`);
+        ? 'Nacht {n} bricht herein – die Untoten werden schneller, aggressiver und zahlreicher!'
+        : 'Tag {n} – du hast die Nacht überlebt! Die Untoten der Nacht zerfallen im Morgenlicht.', { n: this.day });
       if (!this.isNight) this.startDawn();
     }
 

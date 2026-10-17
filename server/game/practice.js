@@ -35,7 +35,7 @@ module.exports = {
     }
     if (entry[0] >= C.PRACTICE.max) entry[1] = 0;
     if (!leveled) return;
-    this.msg(p, `${def.icon} ${def.name} steigt auf Stufe ${entry[0]}!`);
+    this.msg(p, '{icon} {name} steigt auf Stufe {n}!', { icon: def.icon, name: def.name, n: entry[0] });
     if (def.stats) this.computeStats(p); // Tempo, Schaden, Schlagrate
   },
 

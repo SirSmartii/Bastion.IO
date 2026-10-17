@@ -195,6 +195,11 @@ Gegner entdecken nur Spieler, die sie sehen können. Verschwindet man hinter Dec
 | `menu.js`, `chat.js`, `effects.js` | Startmenü, Chat, Partikel & Meldungen |
 | `draw/` | Gelände, Gebäude & Figuren, Items, Licht, Sonnen- & Sichtschatten, Zeichen-Grundfunktionen |
 | `ui/` | HUD, Werkbank-Optik (`theme.js`) und je ein Modul pro Fenster (Inventar, Charakter, Schmiede, Baumenü, Fertigkeiten, Team, Karte, Menü [Esc]) |
+| `i18n.js`, `lang/` | Sprachen (Deutsch, Englisch, Polnisch): Auswahl im Hauptmenü, Wörterbücher `lang/en.js` und `lang/pl.js` |
+
+### Sprachen
+
+Deutsch ist die Quellsprache: Alle Texte im Code und in der Server-Config sind deutsch und zugleich die Schlüssel der Wörterbücher (`public/js/lang/*.js`). Der Client übersetzt mit `t('Text {n}', { n })`; die Config übersetzt er einmal beim Betreten (`localizeConfig`). Der Server schickt Meldungen als deutsche Vorlage mit Werten (`this.msg(p, '{name} gekocht!', { name })`), übersetzt wird erst im Client – Item-Namen in den Werten gleich mit. Fehlende Übersetzungen bleiben deutsch und stehen in der Browser-Konsole in `window.__i18nMissing`. Die Sprache gilt ab dem nächsten Betreten des Spiels; gespeichert wird sie im Browser. Nur die Leistungsanzeige [F3] bleibt deutsch.
 
 ### Grafiken (`public/assets/`)
 

@@ -1,6 +1,7 @@
 // Startmenü: Einloggen, Registrieren oder als Gast spielen.
 
 import { sendAuth } from './net.js';
+import { t, lang, LANGS, setLang, localizeDom } from './i18n.js';
 
 const menu = document.getElementById('menu');
 export const nameInput = document.getElementById('name');
@@ -9,12 +10,31 @@ const info = document.getElementById('menu-info');
 
 try { nameInput.value = localStorage.getItem('bastion-name') || ''; } catch (_) { /* privater Modus */ }
 
+// Sprachauswahl: wirkt sofort aufs Menü; das Spiel übernimmt sie beim nächsten Betreten
+const langBox = document.getElementById('langs');
+for (const l of LANGS) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.dataset.lang = l.id;
+  b.textContent = l.name;
+  b.addEventListener('click', () => chooseLang(l.id));
+  langBox.appendChild(b);
+}
+
+function chooseLang(id) {
+  setLang(id);
+  localizeDom();
+  for (const b of langBox.children) b.classList.toggle('active', b.dataset.lang === lang);
+  showMenuMessage('');
+}
+chooseLang(lang);
+
 // type: 'login' | 'register' | 'join' (Gast)
 function start(type) {
   const name = nameInput.value.trim();
   try { localStorage.setItem('bastion-name', name); } catch (_) { /* privater Modus */ }
-  if (type !== 'join' && (!name || !passInput.value)) return showMenuMessage('Name und Passwort eingeben.');
-  showMenuMessage(type === 'register' ? 'Account wird angelegt…' : 'Verbinde…');
+  if (type !== 'join' && (!name || !passInput.value)) return showMenuMessage(t('Name und Passwort eingeben.'));
+  showMenuMessage(t(type === 'register' ? 'Account wird angelegt…' : 'Verbinde…'));
   sendAuth(type === 'join' ? { t: type, name } : { t: type, user: name, pass: passInput.value });
 }
 
