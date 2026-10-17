@@ -803,6 +803,8 @@ module.exports = {
   // Accounts & Speichern (SQLite-Datei, Pfad per DB_PATH änderbar)
   ACCOUNTS: {
     dbPath: process.env.DB_PATH || 'data/bastion.db',
+    // MySQL/MariaDB statt SQLite, z. B. mysql://bastion:passwort@localhost:3306/bastion (server/db-mysql.js)
+    mysqlUrl: process.env.MYSQL_URL || '',
     autosave: 60, // Sekunden zwischen automatischen Speicherungen
     nameMin: 3,
     nameMax: 16,

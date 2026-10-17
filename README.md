@@ -5,11 +5,12 @@
 ## Starten
 
 ```bash
+npm install
 node server.js
 ```
 
 Dann im Browser `http://localhost:3000` öffnen (mehrere Tabs = mehrere Spieler).
-Keine npm-Pakete nötig (Node.js ≥ 22.13, wegen des eingebauten `node:sqlite`).
+Node.js ≥ 22.13 (wegen des eingebauten `node:sqlite`). Einziges npm-Paket ist `mysql2` – nur nötig, wenn MySQL benutzt wird.
 
 Zum Testen mit kurzem Tag: `DAY_LENGTH=10 node server.js` (PowerShell: `$env:DAY_LENGTH=10; node server.js`).
 
@@ -17,6 +18,7 @@ Zum Testen mit kurzem Tag: `DAY_LENGTH=10 node server.js` (PowerShell: `$env:DAY
 
 - Im Startmenü **registrieren** oder **einloggen** (Name + Passwort). Wer als **Gast** spielt, wird nicht gespeichert, und seine Basis verschwindet beim Verlassen
 - Spielstände liegen in einer SQLite-Datenbank, standardmäßig `data/bastion.db` (Pfad per `DB_PATH=…`). Tabellen: `accounts` (Passwörter mit scrypt + Salt gehasht), `characters` (Inventar, Ausrüstung, Hotbar, Level, Skills, Position …), `bases` (alle Gebäude inkl. Truhen- und Kern-Lager), `meta` (Welt-Seed und Uhrzeit)
+- **MySQL/MariaDB statt SQLite:** `MYSQL_URL=mysql://benutzer:passwort@localhost:3306/datenbank` setzen (`server/db-mysql.js`). Die Tabellen legt der Server selbst an. Er lädt beim Start alle Spielstände in den Speicher und schreibt Änderungen im Hintergrund; beim Beenden wartet er, bis alles geschrieben ist. Ist die Datenbank nicht erreichbar, läuft das Spiel nur mit Gästen. Vorhandene SQLite-Spielstände übernimmt einmalig `MYSQL_URL=… node tools/sqlite-to-mysql.js data/bastion.db` (MySQL-Datenbank muss leer sein)
 - **Ausloggen** im Menü (`Esc`). Gespeichert wird beim Ausloggen/Trennen, automatisch alle 60 s und beim Beenden des Servers (Ctrl+C, SIGTERM)
 - Beim nächsten Login steht der Charakter wieder an derselben Stelle. Die **Basis bleibt offline in der Welt** und unterliegt weiter Unterhalt und Verfall
 - Mit Datenbank bleibt auch die **Welt** über Neustarts gleich (Seed wird gespeichert), damit die Basen zum Gelände passen. Teams werden nicht gespeichert
