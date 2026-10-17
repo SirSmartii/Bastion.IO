@@ -113,6 +113,15 @@ class WsConnection extends EventEmitter {
   }
 }
 
+// IP des Besuchers. Hinter Nginx (Verbindung von 127.0.0.1) steht sie im Header X-Real-IP bzw. X-Forwarded-For –
+// nur dann wird dem Header geglaubt, sonst könnte jeder eine beliebige IP vortäuschen.
+function clientIp(req) {
+  const direct = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  if (direct !== '127.0.0.1' && direct !== '::1') return direct;
+  const forwarded = req.headers['x-real-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || direct;
+}
+
 function acceptWebSocket(req, socket, onConnection) {
   const key = req.headers['sec-websocket-key'];
   if (!key || (req.headers.upgrade || '').toLowerCase() !== 'websocket') {
@@ -127,7 +136,9 @@ function acceptWebSocket(req, socket, onConnection) {
     `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
   );
   socket.setNoDelay(true);
-  onConnection(new WsConnection(socket));
+  const conn = new WsConnection(socket);
+  conn.ip = clientIp(req);
+  onConnection(conn);
 }
 
-module.exports = { acceptWebSocket };
+module.exports = { acceptWebSocket, clientIp };

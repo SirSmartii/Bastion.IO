@@ -15,11 +15,16 @@ import { resize } from './main.js';
 import { netMessage, setServerStats } from './perf.js';
 import { onServerTick, addSample, resetInterpolation } from './interp.js';
 import { reconcile, resetPrediction } from './predict.js';
-import { t, localizeConfig } from './i18n.js';
+import { t, lang, localizeConfig } from './i18n.js';
+import { setAdminData } from './ui/admin.js';
 
 let ws = null;
 let loggingOut = false;
 let slowState = {}; // zuletzt empfangener "seltener" Teil des eigenen Zustands (ms)
+let kickReason = null; // vom Server gekickt/gebannt: Text fürs Hauptmenü
+
+// Platzhalter-Werte vom Server: until (Zeitstempel eines Banns) als Datum in der gewählten Sprache
+const withDates = (v) => (v && v.until ? { ...v, until: new Date(v.until).toLocaleString(lang) } : v);
 
 export function send(o) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
@@ -52,9 +57,11 @@ function connect(firstMessage) {
     ws = null;
     resetGame();
     showMenu();
-    if (loggingOut) showMenuMessage(t(account ? 'Ausgeloggt – dein Spielstand ist gespeichert.' : 'Ausgeloggt.'), !!account);
+    if (kickReason) showMenuMessage(kickReason);
+    else if (loggingOut) showMenuMessage(t(account ? 'Ausgeloggt – dein Spielstand ist gespeichert.' : 'Ausgeloggt.'), !!account);
     else showMenuMessage(t(wasPlaying ? 'Verbindung getrennt.' : 'Server nicht erreichbar.'));
     loggingOut = false;
+    kickReason = null;
   };
 }
 
@@ -75,9 +82,11 @@ function resetGame() {
 
 function onMessage(m) {
   switch (m.t) {
-    case 'auth': showMenuMessage(t(m.err, m.v)); break; // Login-Fehler
+    case 'auth': showMenuMessage(t(m.err, withDates(m.v))); break; // Login-Fehler (auch: gebannt)
+    case 'kick': kickReason = t(m.text, withDates(m.v)); break; // die Verbindung schließt gleich danach
+    case 'adm': setAdminData(m); break;
     case 'init':
-      setSession(localizeConfig(m.cfg), m.id, m.acc);
+      setSession(localizeConfig(m.cfg), m.id, m.acc, m.admin);
       setResources(m.res);
       setupWorld(m.world);
       resize();

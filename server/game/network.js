@@ -73,6 +73,7 @@ module.exports = {
       case 'tdec': p.invites.delete(int(m.id)); break;
       case 'tleave': this.leaveTeam(p); break;
       case 'tkick': this.kick(p, int(m.id)); break;
+      case 'adm': this.handleAdmin(p, m); break;
     }
   },
 
@@ -248,6 +249,7 @@ module.exports = {
       sb: p.dead ? this.sleepingBags(p).map((b) => [b.s.id, Math.round(b.s.x), Math.round(b.s.y), b.wait]) : undefined,
       fi: p.fishing ? +Math.min(1, (this.now - p.fishing.start) / (p.fishing.until - p.fishing.start)).toFixed(2) : undefined,
       tl: p.equip.weapon === 'torch' ? Math.ceil(p.torchLeft || C.EQUIPMENT.torch.burn) : undefined,
+      god: p.god ? 1 : undefined, // Godmode (Admin)
       al: Math.floor(p.alive), ab: Math.floor(Math.max(p.bestAlive, p.alive)), // Überlebenszeit, Rekord (s)
       prot: Math.max(0, Math.ceil(p.protectUntil - this.time)), calm: Math.max(0, Math.ceil(p.calmUntil - this.time)),
       // Team: Mitglieder als [id, Name, x, y, Leben-Anteil, tot, Kern-x, Kern-y] (für Karten & Team-Fenster)

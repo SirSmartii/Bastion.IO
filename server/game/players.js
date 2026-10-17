@@ -42,6 +42,8 @@ module.exports = {
         // Gast: wird nicht gespeichert; Namen von Accounts sind für Gäste gesperrt
         const name = this.cleanName(msg.name);
         if (this.db && this.db.findAccount(name)) return authError('Dieser Name gehört zu einem Account – bitte einloggen.');
+        const ban = this.activeBan(null, conn.ip);
+        if (ban) return authError(...this.banMessage(ban));
         player = this.addPlayer(conn, name);
       } else if (msg.t === 'login' || msg.t === 'register') {
         if (Date.now() - lastLoginTry < C.ACCOUNTS.loginCooldown * 1000) return authError('Bitte kurz warten.');
@@ -50,6 +52,8 @@ module.exports = {
         this.authenticate(msg).then((acc) => {
           if (closed) return;
           if (this.players.has(ACCOUNT_ID_BASE + acc.id)) return authError('Dieser Account ist bereits im Spiel.');
+          const ban = acc.admin ? null : this.activeBan(acc.id, conn.ip); // Admins sperren sich nicht selbst aus
+          if (ban) return authError(...this.banMessage(ban));
           player = this.addPlayer(conn, acc.username, acc);
         }).catch((e) => {
           if (!e.forPlayer) console.error('Login fehlgeschlagen:', e);
@@ -88,6 +92,7 @@ module.exports = {
   addPlayer(conn, name, acc = null) {
     if (!acc) name = this.cleanName(name);
     const p = this.newPlayer(conn, name, acc);
+    p.admin = !!(acc && acc.admin);
     const saved = acc && this.db ? this.db.loadCharacter(acc.id) : null;
     if (acc) this.attachBase(p); // die Basis lief offline weiter (inkl. Unterhalt & Verfall)
 
@@ -109,6 +114,7 @@ module.exports = {
     }
     this.players.set(p.id, p);
     this.lbDirty = true;
+    this.startSession(p);
     this.sendInit(p, acc);
 
     if (saved) {
@@ -163,7 +169,7 @@ module.exports = {
       'RESOURCES', 'SIGHT', 'TICK_RATE', 'PRACTICE', 'SURVIVAL', 'WILDLIFE', 'GEAR', 'MODS', 'CURSES', 'MATERIALS', 'FISHING']) cfg[key] = C[key];
     const w = this.world;
     p.conn.send(JSON.stringify({
-      t: 'init', id: p.id, acc: acc ? acc.username : null, cfg,
+      t: 'init', id: p.id, acc: acc ? acc.username : null, admin: p.admin, cfg,
       res: this.resources.map((r) => this.resWire(r)),
       world: {
         n: w.n, G: w.G, biomes: w.biomes, lakes: w.lakes, roads: w.roads,
@@ -173,6 +179,7 @@ module.exports = {
   },
 
   removePlayer(p) {
+    this.endSession(p);
     this.leaveTeam(p, true);
     for (const o of this.players.values()) o.invites.delete(p.id);
     // Accounts: Charakter speichern, die Basis bleibt in der Welt. Gäste nehmen ihre Basis mit.
@@ -197,7 +204,7 @@ module.exports = {
     p.protectNote = 0;
   },
 
-  isProtected(p) { return !!p && this.time < p.protectUntil; },
+  isProtected(p) { return !!p && (this.time < p.protectUntil || !!p.god); }, // Godmode (Admin) schützt genauso
   isCalm(p) { return !!p && this.time < p.calmUntil; },
 
   // Hinweise beim Wechsel der Schutzphasen

@@ -1,7 +1,7 @@
 // Menü [Esc] mit zwei Reitern: Übersicht (eigenes Überleben, Spielerliste, Konto) und Steuerung (alle Tasten,
 // nach Themen gruppiert). Unten Weiterspielen & Ausloggen. Das Spiel läuft dabei weiter – es ist ein Mehrspieler-Spiel.
 
-import { ctx, me, myId, account, leaderboard, online, ui, mouse, W, H } from '../state.js';
+import { ctx, me, myId, account, leaderboard, online, ui, mouse, W, H, isAdmin } from '../state.js';
 import { text, inRect, rrect } from '../draw/primitives.js';
 import { logout } from '../net.js';
 import { woodPanel, parchment, woodButton, CREAM, INK, INK_LIGHT, PARCHMENT, PARCHMENT_DARK, WOOD_DARK } from './theme.js';
@@ -14,6 +14,8 @@ const WIDTH = 520, PAD = 20, ROW = 22, KEY_ROW = 21;
 export const whileDead = true;
 
 const TABS = [{ id: 'overview', name: 'Übersicht' }, { id: 'keys', name: 'Steuerung' }];
+const ADMIN_TAB = { id: 'admin', name: '🛠 Admin' }; // nur für Admins: öffnet das Admin-Menü
+const tabs = () => (isAdmin ? [...TABS, ADMIN_TAB] : TABS);
 
 // Tastenhilfe: [Gruppe, [[Tasten, Beschreibung], …]] – übersetzt wird beim Zeichnen (Tasten nur, wenn sie Wörter sind)
 const CONTROLS = [
@@ -68,10 +70,10 @@ export function layout() {
   const tab = TABS.some((tb) => tb.id === ui.escTab) ? ui.escTab : 'overview', list = rows();
   const top = 92, h = top + contentHeight(tab, list) + 56;
   const x = Math.round(W / 2 - WIDTH / 2), y = Math.round(Math.max(20, H / 2 - h / 2));
-  const bw = (WIDTH - PAD * 2 - 12) / 2, by = y + h - 50, tw = (WIDTH - PAD * 2 - 8) / TABS.length;
+  const bw = (WIDTH - PAD * 2 - 12) / 2, by = y + h - 50, tw = (WIDTH - PAD * 2 - 8 * (tabs().length - 1)) / tabs().length;
   return {
     panel: { x, y, w: WIDTH, h }, list, tab, top: y + top,
-    tabs: TABS.map((tb, i) => ({ ...tb, name: t(tb.name), rect: { x: x + PAD + i * (tw + 8), y: y + 48, w: tw, h: 30 } })),
+    tabs: tabs().map((tb, i) => ({ ...tb, name: t(tb.name), rect: { x: x + PAD + i * (tw + 8), y: y + 48, w: tw, h: 30 } })),
     resume: { x: x + PAD, y: by, w: bw, h: 34 },
     logout: { x: x + PAD + bw + 12, y: by, w: bw, h: 34 },
   };
@@ -80,7 +82,8 @@ export function layout() {
 export function onClick(x, y) {
   const L = layout();
   const tab = L.tabs.find((tb) => inRect(x, y, tb.rect));
-  if (tab) ui.escTab = tab.id;
+  if (tab && tab.id === 'admin') ui.panel = 'admin';
+  else if (tab) ui.escTab = tab.id;
   else if (inRect(x, y, L.logout)) logout();
   else if (inRect(x, y, L.resume) || !inRect(x, y, L.panel)) ui.panel = null;
 }

@@ -111,11 +111,11 @@ class Game {
     this.saveT += dt;
     if (this.saveT < C.ACCOUNTS.autosave) return;
     this.saveT = 0;
-    try { this.saveAll(); } catch (e) { console.error('Autosave fehlgeschlagen:', e); }
+    try { this.saveAll(); this.saveViews(); } catch (e) { console.error('Autosave fehlgeschlagen:', e); }
   }
 }
 
-for (const part of ['resources', 'players', 'persistence', 'items', 'building', 'storage', 'combat', 'enemies', 'sight', 'practice', 'gear', 'social', 'network']) {
+for (const part of ['resources', 'players', 'persistence', 'items', 'building', 'storage', 'combat', 'enemies', 'sight', 'practice', 'gear', 'social', 'network', 'admin']) {
   Object.assign(Game.prototype, require(`./game/${part}`));
 }
 

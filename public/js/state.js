@@ -20,11 +20,13 @@ export function drawInto(g, fn) {
 export let cfg = null; // Spiel-Config vom Server
 export let myId = 0;
 export let account = null; // Name des eingeloggten Accounts (Gast: null)
+export let isAdmin = false; // Admin-Recht (Datenbank: accounts.is_admin) – öffnet das Admin-Menü [F8]
 
-export function setSession(config, id, accountName) {
+export function setSession(config, id, accountName, admin = false) {
   cfg = config;
   myId = id;
   account = accountName;
+  isAdmin = !!admin;
 }
 
 // ---------- Eigener Zustand ----------

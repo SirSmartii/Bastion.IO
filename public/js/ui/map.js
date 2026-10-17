@@ -1,6 +1,7 @@
 // Weltkarte [M]: ganze Welt mit Planquadraten, eigener Basis und Team. Fremde Spieler sind nicht zu sehen.
 
-import { ctx, cfg, me, now, myAngle, minimap, mouse, W, H, dpr } from '../state.js';
+import { ctx, cfg, me, now, myAngle, minimap, mouse, W, H, dpr, isAdmin } from '../state.js';
+import { send } from '../net.js';
 import { TAU } from '../constants.js';
 import { circle, rrect, text, inRect } from '../draw/primitives.js';
 import { world, worldVersion, groundCanvas } from '../world.js';
@@ -61,9 +62,14 @@ function buildCache(size) {
 // Auch im Tod offen lassen (hud.js)
 export const whileDead = true;
 
+// Lage der Karte auf dem Bildschirm (Seitenlänge S, Maßstab k)
+function mapRect() {
+  const S = Math.floor(Math.min(W - 80, H - 130));
+  return { S, x: Math.round((W - S) / 2), y: Math.round((H - S) / 2 + 12), k: S / cfg.WORLD_SIZE };
+}
+
 export function draw() {
-  const S = Math.floor(Math.min(W - 80, H - 130)), x = Math.round((W - S) / 2), y = Math.round((H - S) / 2 + 12);
-  const WS = cfg.WORLD_SIZE, k = S / WS;
+  const { S, x, y, k } = mapRect(), WS = cfg.WORLD_SIZE;
   const key = `${S}:${dpr}:${worldVersion}`;
   if (key !== cacheKey) { buildCache(S); cacheKey = key; }
   const mx = (wx) => x + wx * k, my = (wy) => y + wy * k;
@@ -105,6 +111,7 @@ export function draw() {
     info += t('  ·  Maus: {s} ({n} entfernt)', { s: sector(wx, wy), n: Math.round(Math.hypot(wx - me.x, wy - me.y)) });
   }
   text(info, x + S / 2, y - 18, { size: 12, align: 'center', color: '#cfd8c0' });
+  if (isAdmin) text(t('Admin: Klick = Teleport'), x + S / 2, y + S - 10, { size: 12, bold: true, align: 'center', color: '#ffd76a' });
 }
 
 // Planquadrate A–J / 1–10
@@ -144,8 +151,12 @@ function drawSelf(sx, sy) {
   ctx.restore();
 }
 
-// Klicks auf der Karte gehen nicht ins Spiel
-export function onClick() {}
+// Klicks auf der Karte gehen nicht ins Spiel – Admins teleportieren sich an die Stelle
+export function onClick(mx, my) {
+  const { S, x, y, k } = mapRect();
+  if (!isAdmin || !inRect(mx, my, { x, y, w: S, h: S })) return;
+  send({ t: 'adm', a: 'tp', x: Math.round((mx - x) / k), y: Math.round((my - y) / k) });
+}
 
 // Die Karte überdeckt den ganzen Bildschirm
 export function layout() {

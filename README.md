@@ -23,6 +23,20 @@ Zum Testen mit kurzem Tag: `DAY_LENGTH=10 node server.js` (PowerShell: `$env:DAY
 - Beim nächsten Login steht der Charakter wieder an derselben Stelle. Die **Basis bleibt offline in der Welt** und unterliegt weiter Unterhalt und Verfall
 - Mit Datenbank bleibt auch die **Welt** über Neustarts gleich (Seed wird gespeichert), damit die Basen zum Gelände passen. Teams werden nicht gespeichert
 
+## Admin-Menü
+
+Admin wird man in der Datenbank: `UPDATE accounts SET is_admin = 1 WHERE username = 'Name';` – wirkt beim nächsten Login (auch ohne Neustart). Gäste können keine Admins sein. Jede Aktion prüft der Server (`server/game/admin.js`).
+
+- Öffnen mit **[F8]** oder im Menü **[Esc] → 🛠 Admin**
+- **Übersicht:** wer gerade online ist, und für die letzten 7 Tage Seitenaufrufe (Hauptmenü geladen), Besucher (verschiedene IPs), Spieler (wirklich ins Spiel gegangen, davon Gäste), Sitzungen und ihre Durchschnittsdauer; dazu die letzten Sitzungen
+- **Spieler:** Hinbeamen, Herholen, Godmode, Heilen, Kick, Bann für 1 h / 24 h / immer (Kick & Bann mit zweitem Klick bestätigen). Ein Bann sperrt den Account und die IP – so lassen sich auch Gäste bannen. Admins sperrt ein IP-Bann nicht aus
+- **Items:** jedes Item und jedes Ausrüstungsteil erstellen, Menge und Seltenheit wählbar (ohne Fluch)
+- **Bans:** aktive Bans mit Dauer, IP und wer gebannt hat; aufheben
+- Oben für einen selbst: Godmode (kein Schaden, kein Hunger, Gegner ignorieren einen), Heilen, Tag/Nacht, Gegner im Umkreis entfernen
+- **Teleport:** als Admin auf die Weltkarte [M] klicken
+
+Gespeichert wird in den Tabellen `sessions` (jede Spielsitzung: Name, Account, IP, Beginn, Ende), `bans` und `daily` (Seitenaufrufe pro Tag, Tagesgrenze Europe/Berlin). Hinter Nginx kommt die echte IP aus dem Header `X-Real-IP` – dafür in der Nginx-Konfiguration `proxy_set_header X-Real-IP $remote_addr;` eintragen, sonst sehen alle Besucher wie 127.0.0.1 aus.
+
 ## Deployment (Render)
 
 Das Repo enthält eine `render.yaml`. Auf render.com **New → Blueprint** wählen, das GitHub-Repo verbinden, fertig.

@@ -44,15 +44,16 @@ function upgradeCost(item, target) {
 
 module.exports = {
   // Neues Teil auswürfeln. source: 'craft' | 'loot' | 'boss'. Ergebnis: d oder null (gewöhnlich)
-  rollGear(item, source, p = null) {
+  // forceR: feste Seltenheit ohne Fluch (Items erstellen im Admin-Menü)
+  rollGear(item, source, p = null, forceR = null) {
     const def = lookup(C.EQUIPMENT, item), G = C.GEAR;
     if (!def || def.noRoll) return null; // Verbrauchsteile (Fackel, Angel, Rucksack) ohne Seltenheit
-    let r = weightedIndex(G.sources[source] || G.sources.loot);
+    let r = forceR ?? weightedIndex(G.sources[source] || G.sources.loot);
     // Übung im Schmieden: manchmal eine Seltenheit besser (höchstens bis Selten)
-    if (p && source === 'craft' && r < 2 && Math.random() < this.practiceBonus(p, 'smithLuck')) r++;
+    if (forceR === null && p && source === 'craft' && r < 2 && Math.random() < this.practiceBonus(p, 'smithLuck')) r++;
     if (!r) return null;
     const rarity = G.rarities[r], d = { r, u: 0, m: [] };
-    const cursed = Math.random() < rarity.curse;
+    const cursed = forceR === null && Math.random() < rarity.curse;
     const ids = pool(C.MODS, def);
     for (let i = 0; i < rarity.mods; i++) {
       const id = pickNew(ids, d.m.map((m) => m[0]));

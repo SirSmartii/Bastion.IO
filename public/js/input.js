@@ -1,7 +1,7 @@
 // Tastatur & Maus: Fenster öffnen, Hotbar, Bauen, Drag & Drop – und die Eingabe für den Server.
 
 import {
-  canvas, cfg, me, myId, players, hovered, ui, keys, mouse, now,
+  canvas, cfg, me, myId, players, hovered, ui, keys, mouse, now, isAdmin,
   screenToWorld, setMyAngle, myAngle,
 } from './state.js';
 import { inRect } from './draw/primitives.js';
@@ -43,6 +43,7 @@ const KEY_ACTIONS = {
   KeyX: demolishHovered,
   KeyG: () => togglePanel('craft'),
   F3: togglePerf,
+  F8: () => { if (isAdmin) togglePanel('admin'); },
   // [Esc]: erst offene Fenster schließen, dann den Bau-Modus verlassen, sonst das Menü öffnen
   Escape: () => {
     if (anyWindowOpen()) closeAllWindows();
@@ -62,7 +63,7 @@ addEventListener('keydown', (e) => {
     } else if (e.key === 'Escape') closeChat();
     return;
   }
-  if (e.code === 'Tab' || e.code === 'F3') e.preventDefault();
+  if (e.code === 'Tab' || e.code === 'F3' || e.code === 'F8') e.preventDefault();
   if (e.code === 'Enter' || e.code === 'NumpadEnter') {
     e.preventDefault();
     if (!e.repeat) openChat();

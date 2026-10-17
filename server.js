@@ -6,7 +6,7 @@ const C = require('./server/config');
 const Game = require('./server/game');
 const Db = require('./server/db');
 const MysqlDb = require('./server/db-mysql');
-const { acceptWebSocket } = require('./server/ws');
+const { acceptWebSocket, clientIp } = require('./server/ws');
 
 const PUBLIC = path.join(__dirname, 'public');
 const MIME = {
@@ -19,10 +19,13 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
+let game = null; // wird in main() angelegt
+
 const server = http.createServer((req, res) => {
   let url;
   try { url = decodeURIComponent(req.url.split('?')[0]); } catch (_) { url = '/'; }
   if (url === '/') url = '/index.html';
+  if (url === '/index.html' && game) game.countView(clientIp(req)); // Seitenaufrufe für die Statistik im Admin-Menü
   const file = path.normalize(path.join(PUBLIC, url));
   if (!file.startsWith(PUBLIC + path.sep)) {
     res.writeHead(403);
@@ -59,14 +62,14 @@ async function openDb() {
 
 async function main() {
   const db = await openDb();
-  const game = new Game({ db });
+  game = new Game({ db });
 
   // Beim Beenden (Ctrl+C, Neustart des Dienstes) alles speichern – bei MySQL warten, bis es geschrieben ist
   let stopping = false;
   async function shutdown() {
     if (stopping) return;
     stopping = true;
-    try { game.saveAll(); } catch (e) { console.error('Speichern beim Beenden fehlgeschlagen:', e); }
+    try { game.saveAll(); game.endAllSessions(); } catch (e) { console.error('Speichern beim Beenden fehlgeschlagen:', e); }
     try { if (db) await db.close(); } catch (e) { console.error('Datenbank schließen fehlgeschlagen:', e); }
     process.exit(0);
   }

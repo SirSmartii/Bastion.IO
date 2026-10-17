@@ -1,6 +1,7 @@
 'use strict';
 // Persistenz über SQLite (node:sqlite, in Node ≥ 22.13 eingebaut – keine npm-Pakete nötig).
-// Tabellen: accounts (Login), characters (Spielstand als JSON), bases (Gebäude als JSON), meta (Welt-Seed, Uhrzeit).
+// Tabellen: accounts (Login, is_admin), characters (Spielstand als JSON), bases (Gebäude als JSON), meta (Welt-Seed, Uhrzeit),
+// bans (nach Account und/oder IP), sessions (jede Spielsitzung, für die Statistik im Admin-Menü), daily (Seitenaufrufe pro Tag).
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -29,6 +30,30 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS bans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER,
+  ip TEXT,
+  name TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  until INTEGER,
+  created_at INTEGER NOT NULL,
+  by_name TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  sid TEXT PRIMARY KEY,
+  account_id INTEGER,
+  name TEXT NOT NULL,
+  ip TEXT,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS sessions_started ON sessions(started_at);
+CREATE TABLE IF NOT EXISTS daily (
+  day TEXT PRIMARY KEY,
+  views INTEGER NOT NULL,
+  visitors INTEGER NOT NULL
+);
 `;
 
 // Fehlermeldung, die der Spieler sehen darf
@@ -45,6 +70,10 @@ class Db {
     this.db = new DatabaseSync(file);
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     this.db.exec(SCHEMA);
+    // Ältere Datenbanken: Admin-Spalte nachrüsten (Admin vergeben: UPDATE accounts SET is_admin = 1 WHERE username = '…')
+    if (!this.db.prepare('PRAGMA table_info(accounts)').all().some((c) => c.name === 'is_admin')) {
+      this.db.exec('ALTER TABLE accounts ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
+    }
     const q = (sql) => this.db.prepare(sql);
     this.q = {
       findAcc: q('SELECT * FROM accounts WHERE username_lc = ?'),
@@ -57,7 +86,17 @@ class Db {
       delBase: q('DELETE FROM bases WHERE account_id = ?'),
       getMeta: q('SELECT value FROM meta WHERE key = ?'),
       putMeta: q('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
+      addBan: q('INSERT INTO bans (account_id, ip, name, reason, until, created_at, by_name) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+      delBan: q('DELETE FROM bans WHERE id = ?'),
+      startSession: q('INSERT OR REPLACE INTO sessions (sid, account_id, name, ip, started_at) VALUES (?, ?, ?, ?, ?)'),
+      endSession: q('UPDATE sessions SET ended_at = ? WHERE sid = ?'),
+      sessionsSince: q('SELECT * FROM sessions WHERE started_at >= ? ORDER BY started_at'),
+      putDaily: q('INSERT INTO daily (day, views, visitors) VALUES (?, ?, ?) ON CONFLICT(day) DO UPDATE SET views = excluded.views, visitors = excluded.visitors'),
+      countAcc: q('SELECT COUNT(*) AS n FROM accounts'),
     };
+    // Bans und Tageszahlen liegen zusätzlich im Speicher (beim Beitreten wird synchron geprüft)
+    this.bans = this.db.prepare('SELECT * FROM bans').all();
+    this.daily = new Map(this.db.prepare('SELECT * FROM daily').all().map((d) => [d.day, { views: d.views, visitors: d.visitors }]));
   }
 
   // ---------- Accounts ----------
@@ -84,7 +123,7 @@ class Db {
     const a = Buffer.from(h, 'hex'), b = Buffer.from(acc.pass_hash, 'hex');
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
     this.q.touchAcc.run(Date.now(), acc.id);
-    return { id: acc.id, username: acc.username };
+    return { id: acc.id, username: acc.username, admin: !!acc.is_admin };
   }
 
   // ---------- Spielstände ----------
@@ -117,6 +156,31 @@ class Db {
 
   setMeta(key, value) {
     this.q.putMeta.run(key, String(value));
+  }
+
+  // ---------- Admin: Bans, Sitzungen, Statistik ----------
+  // Gleiche Schnittstelle wie db-mysql.js – darum geben die Abfragen Promises zurück.
+
+  async addBan(ban) {
+    const r = this.q.addBan.run(ban.account_id ?? null, ban.ip ?? null, ban.name, ban.reason, ban.until ?? null, ban.created_at, ban.by_name);
+    const row = { ...ban, id: Number(r.lastInsertRowid) };
+    this.bans.push(row);
+    return row;
+  }
+
+  async removeBan(id) {
+    this.q.delBan.run(id);
+    this.bans = this.bans.filter((b) => b.id !== id);
+  }
+
+  startSession(s) { this.q.startSession.run(s.sid, s.account_id ?? null, s.name, s.ip ?? null, s.started_at); }
+  endSession(sid, at) { this.q.endSession.run(at, sid); }
+  async sessionsSince(t) { return this.q.sessionsSince.all(t); }
+  async countAccounts() { return Number(this.q.countAcc.get().n); }
+
+  putDaily(day, views, visitors) {
+    this.daily.set(day, { views, visitors });
+    this.q.putDaily.run(day, views, visitors);
   }
 
   // Mehrere Schreibvorgänge atomar
