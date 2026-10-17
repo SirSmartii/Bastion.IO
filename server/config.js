@@ -204,8 +204,7 @@ module.exports = {
     citySpacing: 3000,
     ruinDecay: 0.14, // Anteil fehlender Mauerstücke
     lakes: 9,
-    cityZombies: 5, // Zombies, die in einer Stadt mit Spielern in der Nähe herumlaufen (+ pro Tag)
-    cityZombiesPerDay: 2,
+    cityZombies: 7, // Zombies, die in einer Stadt mit Spielern in der Nähe herumlaufen (nachts 1,5×)
     noBuildMargin: 250, // Abstand zur Stadtgrenze, ab dem gebaut werden darf
     // Gebäudetypen. Jede Stadt bekommt (wenn Platz ist) je eines der Sondergebäude, der Rest nach weight.
     // size: Kantenlänge in Kacheln [min, max] (max 6 = eine ganze Straßenzelle), floor: Bodenfarbe,
@@ -420,7 +419,8 @@ module.exports = {
   // Fernwaffen: ammo = Munitionsgruppe (siehe AMMO), range = Schussweite,
   //   projectile: speed, pellets (Kugeln pro Schuss), spread (Streuung in rad).
   //   noise: Schüsse locken Gegner in diesem Umkreis an.
-  // tab: Reiter in der Schmiede (siehe FORGE_TABS), mat: Material (Auswahl in der Schmiede)
+  // tab: Reiter in der Schmiede (siehe FORGE_TABS), mat: Material (Auswahl in der Schmiede),
+  // tier: Stärke-Stufe wie MATERIALS[*].tier (Vergleich mit der Gegner-Stufe, Verbessern mit Stahl ab GEAR.steelFrom)
   // recipe: in der Schmiede herstellbar ab Schmiede-Level forge (hand: auch unterwegs, amount: Stück pro Herstellung)
   // noRoll: bekommt keine Seltenheit/Boni (Verbrauchsteile wie Fackeln)
   // Waffen, Werkzeuge und Metall-Rüstung entstehen aus MATERIALS × Typ-Vorlage (buildEquipment oben in der Datei).
@@ -436,32 +436,32 @@ module.exports = {
   EQUIPMENT: buildEquipment({
     // Bögen: Fernkampf, verbrauchen Pfeile, können nichts abbauen
     bow_wood: {
-      name: 'Holzbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', color: MATERIALS.wood.color,
+      name: 'Holzbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', tier: 1, color: MATERIALS.wood.color,
       ammo: 'arrow', projectile: { speed: 950 },
       stats: { damage: 14, gather: 0, attackSpeed: 1.3, range: 520 },
       recipe: { forge: 1, hand: true, cost: { wood: 60, fur: 3 } },
     },
     bow_composite: {
-      name: 'Kompositbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', color: ['#62d6e8', '#2b93a6'],
+      name: 'Kompositbogen', slot: 'weapon', kind: 'bow', tab: 'ranged', tier: 4, color: ['#62d6e8', '#2b93a6'],
       ammo: 'arrow', projectile: { speed: 950 },
       stats: { damage: 28, gather: 0, attackSpeed: 1.7, range: 680 },
       recipe: { forge: 3, cost: { wood: 120, bone: 20, scrap: 6, leather: 4 } },
     },
     // Feuerwaffen: stark, brauchen Munition und sind laut
     pistol: {
-      name: 'Pistole', slot: 'weapon', kind: 'gun', model: 'pistol', tab: 'guns',
+      name: 'Pistole', slot: 'weapon', kind: 'gun', model: 'pistol', tab: 'guns', tier: 4,
       ammo: 'bullet', projectile: { speed: 1500, spread: 0.05 }, noise: 600,
       stats: { damage: 24, gather: 0, attackSpeed: 2.4, range: 620 },
       recipe: { forge: 2, cost: { iron: 15, scrap: 3, wood: 20 } },
     },
     shotgun: {
-      name: 'Schrotflinte', slot: 'weapon', kind: 'gun', model: 'shotgun', tab: 'guns',
+      name: 'Schrotflinte', slot: 'weapon', kind: 'gun', model: 'shotgun', tab: 'guns', tier: 5,
       ammo: 'shell', projectile: { speed: 1300, pellets: 7, spread: 0.3 }, noise: 750,
       stats: { damage: 13, gather: 0, attackSpeed: 1.0, range: 360 },
       recipe: { forge: 3, cost: { steel: 20, scrap: 6, wood: 40 } },
     },
     rifle: {
-      name: 'Gewehr', slot: 'weapon', kind: 'gun', model: 'rifle', tab: 'guns',
+      name: 'Gewehr', slot: 'weapon', kind: 'gun', model: 'rifle', tab: 'guns', tier: 6,
       ammo: 'bullet', projectile: { speed: 1900, spread: 0.01 }, noise: 900,
       stats: { damage: 62, gather: 0, attackSpeed: 0.85, range: 1000 },
       recipe: { forge: 4, cost: { steel: 35, scrap: 12, wood: 60 } },
@@ -820,9 +820,11 @@ module.exports = {
   },
 
   // Gegner & Tiere.
+  // level: feste Stufe (sie wachsen nicht mit den Tagen) ≈ empfohlene Ausrüstung – 1–2 Stein, 3–4 Kupfer/Bronze,
+  //   5–6 Eisen, 7–8 Stahl. Werte (hp, dmg …) sind darauf abgestimmt; ein Rudel-Alpha zählt eine Stufe mehr.
   // ai: 'zombie' (Untote, nachts wilder), 'pack' (Rudel, jagt Spieler),
   //     'neutral' (friedlich, wehrt sich), 'territorial' (greift nur in der Nähe an)
-  // spawn: Gewichtung tagsüber/nachts, + perDay pro Tag (bis max). pack: Gruppengröße [min, max]
+  // spawn: Gewichtung tagsüber/nachts. pack: Gruppengröße [min, max]
   // Rudel: Der Erste ist der Alpha (alpha: Faktoren für Leben, Schaden, Größe; dunkles Fell), die anderen folgen ihm.
   // predator: Raubtier mit Hunger von 1 (satt) bis 0, sinkt in hungerTime [min, max] Sekunden. Bei 0 wird es
   //   rasend: Es jagt im Umkreis range das schwächste Wesen, das es sieht – Spieler, Zombies und andere Tiere,
@@ -833,7 +835,7 @@ module.exports = {
   // drops: jeder Eintrag wird einzeln gewürfelt (chance 0..1, Menge min..max)
   ENEMIES: {
     normal: {
-      name: 'Zombie', ai: 'zombie', hp: 50, speed: 85, dmg: 8, sdmg: 12, r: 22, score: 10, xp: 8,
+      name: 'Zombie', level: 2, ai: 'zombie', hp: 70, speed: 85, dmg: 10, sdmg: 14, r: 22, score: 10, xp: 8,
       spawn: { day: 35, night: 55 },
       drops: [
         { item: 'gold', chance: 0.6, min: 1, max: 3 },
@@ -841,7 +843,7 @@ module.exports = {
       ],
     },
     runner: {
-      name: 'Läufer', ai: 'zombie', hp: 30, speed: 150, dmg: 5, sdmg: 6, r: 18, score: 10, xp: 8,
+      name: 'Läufer', level: 1, ai: 'zombie', hp: 35, speed: 150, dmg: 6, sdmg: 6, r: 18, score: 10, xp: 8,
       spawn: { day: 10, night: 25 },
       drops: [
         { item: 'gold', chance: 0.5, min: 1, max: 2 },
@@ -849,8 +851,8 @@ module.exports = {
       ],
     },
     brute: {
-      name: 'Koloss', ai: 'zombie', hp: 260, speed: 55, dmg: 18, sdmg: 50, r: 34, score: 40, xp: 30,
-      spawn: { day: 0, night: 4, perDay: 2, max: 25 },
+      name: 'Koloss', level: 7, ai: 'zombie', hp: 380, speed: 55, dmg: 24, sdmg: 60, r: 34, score: 40, xp: 30,
+      spawn: { day: 0, night: 6 },
 	  cap: { near: 2, perPlayer: 2 }, habitat: ['urban'],
       drops: [
         { item: 'gold', chance: 1, min: 5, max: 10 },
@@ -862,7 +864,7 @@ module.exports = {
       ],
     },
     wolf: {
-      name: 'Wolf', ai: 'pack', hp: 45, speed: 175, dmg: 7, sdmg: 5, r: 20, score: 15, xp: 10, aggro: 480,
+      name: 'Wolf', level: 3, ai: 'pack', hp: 60, speed: 175, dmg: 9, sdmg: 5, r: 20, score: 15, xp: 10, aggro: 480,
       pack: [3, 5], alpha: { hp: 1.6, dmg: 1.3, r: 1.2 }, spawn: { day: 18, night: 12 },
       predator: { hungerTime: [150, 300], range: 750, bite: 0.08, calm: 0.5, rageSpeed: 1.15 },
       cap: { near: 2, perPlayer: 2 }, habitat: ['forest', 'grass', 'meadow'],
@@ -872,14 +874,14 @@ module.exports = {
       ],
     },
     pig: {
-      name: 'Wildschwein', ai: 'neutral', hp: 70, speed: 120, dmg: 9, sdmg: 0, r: 24, score: 5, xp: 5,
+      name: 'Wildschwein', level: 1, ai: 'neutral', hp: 70, speed: 120, dmg: 9, sdmg: 0, r: 24, score: 5, xp: 5,
       spawn: { day: 25, night: 0 },
       drops: [
         { item: 'meat', chance: 1, min: 1, max: 3 },
       ],
     },
     bear: {
-      name: 'Bär', ai: 'territorial', hp: 420, speed: 105, dmg: 26, sdmg: 40, r: 36, score: 60, xp: 40,
+      name: 'Bär', level: 6, ai: 'territorial', hp: 480, speed: 105, dmg: 28, sdmg: 45, r: 36, score: 60, xp: 40,
       aggro: 260, leash: 750, spawn: { day: 5, night: 3 },
       predator: { hungerTime: [200, 400], range: 700, bite: 0.06, calm: 0.5, rageSpeed: 1.3 },
       cap: { near: 1, perPlayer: 1.5 }, habitat: ['forest'],
@@ -991,10 +993,8 @@ module.exports = {
     maxTotal: 400,
     dayInterval: 3.5, // Sekunden zwischen Spawns pro Spieler
     nightInterval: 0.9,
-    dayBase: 3, // gewünschte Zombies in der Nähe tagsüber (+ Tag/2)
-    nightBase: 9, // nachts (+ Tag * nightPerDay)
-    nightPerDay: 3,
-    hpScale: 0.2, // +20% HP pro Tag
+    dayBase: 4, // gewünschte Zombies in der Nähe tagsüber
+    nightBase: 15, // nachts (fest – Gegner wachsen nicht mit den Tagen)
     dayAggro: 420,
     nightAggro: 950,
     nightSpeed: 1.3, // Tempo-Faktor nachts

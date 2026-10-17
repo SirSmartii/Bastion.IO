@@ -220,6 +220,18 @@ export function drawZombie(z) {
   else drawSprite(`${z.type}:${r}:${clock[1] ? 1 : 0}`, r * 1.1 + 3, () => drawZombieBody(z.type, r, 0));
   ctx.restore();
   if (z.hp < z.maxHp) hpBar(z.dx, z.dy - r - 14, r * 2, z.hp / z.maxHp, '#e05555');
+  drawEnemyLevel(z, r);
+}
+
+// Stufe neben dem Lebensbalken (gefährliche Arten ab Lv 3 immer). Farbe im Vergleich zur eigenen Waffe:
+// weiß = passt, orange = etwas zu schwach, rot = deutlich zu schwach (Stufe ≈ empfohlenes Material, siehe ENEMIES.level)
+const LEVEL_TIER = [0, 1, 1, 2, 3, 4, 4, 5, 5, 6];
+function drawEnemyLevel(z, r) {
+  const def = cfg.ENEMIES[z.type], level = (def.level || 1) + (z.alpha ? 1 : 0);
+  if (z.hp >= z.maxHp && level < 3) return;
+  const weapon = cfg.EQUIPMENT[me.eq.weapon], mine = (weapon && weapon.tier) || 0, need = LEVEL_TIER[Math.min(level, 9)];
+  const color = need > mine + 1 ? '#ff6a5a' : need > mine ? '#ffb347' : '#f2efe6';
+  outlinedText(`Lv ${level}`, z.dx - r - 6, z.dy - r - 6, { size: 11, color, align: 'right', width: 3 });
 }
 
 // Alpha: dunkles Fell mit heller Halskrause. Fell [Körper, Schwanz, Ohren, Kopf] und Schnauze

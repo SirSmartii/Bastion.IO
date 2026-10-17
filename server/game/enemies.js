@@ -21,14 +21,14 @@ module.exports = {
   // ---------- Spawnen ----------
 
   spawnZombie(type, x, y) {
-    const def = C.ENEMIES[type], S = C.SPAWN, day = this.day;
-    const hp = def.hp * (1 + S.hpScale * (day - 1));
+    // Feste Stufe: Werte wie in der Config, ohne Wachstum über die Tage
+    const def = C.ENEMIES[type], hp = def.hp;
     const z = {
       id: uid(), kind: 'z', type, ai: def.ai, x, y, r: def.r, br: def.r, angle: 0,
       hp, maxHp: hp,
       speed: def.speed * rand(0.9, 1.1), // nachts kommt nightSpeed dazu (siehe nightFactor)
-      dmg: def.dmg * (1 + 0.08 * (day - 1)), // Schaden an Spielern
-      sdmg: def.sdmg * (1 + 0.1 * (day - 1)), // Schaden an Gebäuden
+      dmg: def.dmg, // Schaden an Spielern
+      sdmg: def.sdmg, // Schaden an Gebäuden
       atkCd: 0, spikeCd: 0, attacks: 0,
       target: null, retarget: 0, wanderA: rand(0, TAU), angryAt: 0, angryUntil: 0,
       targetVisible: true, seenX: x, seenY: y, seenAt: -99, // letzte bekannte Position des Ziels
@@ -43,7 +43,7 @@ module.exports = {
 
   // Rund um jeden Spieler Gegner nachliefern (nachts mehr und öfter)
   spawnZombies(dt) {
-    const S = C.SPAWN, day = this.day;
+    const S = C.SPAWN;
     for (const p of this.players.values()) {
       if (p.dead || this.zombies.size >= S.maxTotal || this.isProtected(p)) continue;
       const night = this.isNight && !this.isCalm(p); // ruhige erste Nacht: Spawns wie am Tag
@@ -51,7 +51,7 @@ module.exports = {
       if (p.spawnCd > 0) continue;
       p.spawnCd = (night ? S.nightInterval : S.dayInterval) * rand(0.7, 1.3);
 
-      const wanted = night ? S.nightBase + day * S.nightPerDay : S.dayBase + Math.floor(day / 2);
+      const wanted = night ? S.nightBase : S.dayBase;
       if (this.countZombiesNear(p, 1500) >= wanted) continue;
 
       for (let tries = 0; tries < 10; tries++) {
@@ -59,7 +59,7 @@ module.exports = {
         const x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
         if (x < 50 || y < 50 || x > C.WORLD_SIZE - 50 || y > C.WORLD_SIZE - 50) continue;
         if (!this.isFree(x, y, 40) || this.tooCloseToPlayersOrBases(x, y)) continue;
-        const type = this.pickEnemyType(night, day, (t) => this.canSpawnAnimal(t, x, y));
+        const type = this.pickEnemyType(night, (t) => this.canSpawnAnimal(t, x, y));
         this.spawnGroup(type, x, y);
         break;
       }
@@ -171,7 +171,7 @@ module.exports = {
 
   // Städte sind gefährlich: dort laufen Zombies herum, sobald Spieler in der Nähe sind
   spawnCityZombies(dt) {
-    const M = C.MAP, day = this.day, night = this.isNight;
+    const M = C.MAP, night = this.isNight;
     for (const city of this.world.cities) {
       if (this.zombies.size >= C.SPAWN.maxTotal) return;
       city.spawnCd = (city.spawnCd || 0) - dt;
@@ -182,14 +182,14 @@ module.exports = {
 
       let inCity = 0;
       for (const z of this.zombies.values()) if (z.ai === 'zombie' && Math.hypot(z.x - city.x, z.y - city.y) < city.r) inCity++;
-      const wanted = Math.round((M.cityZombies + M.cityZombiesPerDay * (day - 1)) * (night ? 1.5 : 1));
+      const wanted = Math.round(M.cityZombies * (night ? 1.5 : 1));
       if (inCity >= wanted) continue;
 
       for (let tries = 0; tries < 8; tries++) {
         const a = rand(0, TAU), d = Math.sqrt(Math.random()) * city.r * 0.9;
         const x = city.x + Math.cos(a) * d, y = city.y + Math.sin(a) * d;
         if (!this.isFree(x, y, 30) || visitors.some((p) => Math.hypot(p.x - x, p.y - y) < 450)) continue;
-        let type = this.pickEnemyType(night, day);
+        let type = this.pickEnemyType(night);
         if (C.ENEMIES[type].ai !== 'zombie') type = 'normal'; // in Städten nur Zombies
         this.spawnZombie(type, x, y);
         break;
@@ -204,12 +204,11 @@ module.exports = {
   },
 
   // Gewichtete Zufallswahl laut ENEMIES[*].spawn; allow(type) = false schließt einen Typ aus
-  pickEnemyType(night, day, allow) {
+  pickEnemyType(night, allow) {
     const weights = Object.entries(C.ENEMIES).map(([type, def]) => {
       const sp = def.spawn;
       let w = (night ? sp.night : sp.day) || 0;
       if (w > 0 && allow && !allow(type)) w = 0;
-      if (w > 0 && sp.perDay) w = Math.min(sp.max || Infinity, w + sp.perDay * (day - 1));
       return [type, w];
     });
     let roll = Math.random() * weights.reduce((sum, [, w]) => sum + w, 0);
@@ -488,7 +487,7 @@ module.exports = {
     this.cleanupT = S.cleanupInterval;
     for (const p of this.players.values()) {
       const night = this.isNight && !this.isCalm(p);
-      const wanted = (night ? S.nightBase + this.day * S.nightPerDay : S.dayBase + Math.floor(this.day / 2)) + S.cleanupSlack;
+      const wanted = (night ? S.nightBase : S.dayBase) + S.cleanupSlack;
       // Nur Untote – Tiere haben ihre eigene Obergrenze (ENEMIES[*].cap) und Rudel bleiben ganz
       const near = [...this.zombies.values()].filter((z) => z.ai === 'zombie' && Math.abs(z.x - p.x) < 1500 && Math.abs(z.y - p.y) < 1500);
       if (near.length <= wanted) continue;

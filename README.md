@@ -133,9 +133,11 @@ und `DB_PATH` darauf zeigen lassen, z. B. `DB_PATH=/var/data/bastion.db`.
 
 ## Gegner
 
+Jede Art hat eine **feste Stufe** (`level` in `ENEMIES`) – Gegner und Tiere wachsen nicht mit den Tagen. Die Stufe steht neben dem Lebensbalken und entspricht grob der empfohlenen Ausrüstung: Lv 1–2 Stein, 3–4 Kupfer/Bronze, 5–6 Eisen, 7–8 Stahl. Läufer & Wildschwein Lv 1, Zombie Lv 2, Wolf Lv 3 (Alpha Lv 4), Bär Lv 6, Koloss Lv 7. Nachts sind Untote trotzdem wilder und zahlreicher.
+
 | Gegner | Verhalten |
 |---|---|
-| Zombie / Läufer / Koloss | Jagen Spieler. Nachts sind sie wilder: schneller, sehen weiter, schlagen öfter und härter zu und kommen in größerer Zahl (`SPAWN.night*`). Basen greifen sie nicht gezielt an, nur was ihnen im Weg steht. Bei Sonnenaufgang zerfallen die Untoten der Nacht (ohne Beute): außer Sicht sofort, sichtbare qualmen ~15 s lang – wer gerade kämpft, kämpft zu Ende. Außerdem werden überzählige, untätige Gegner außerhalb jedes Sichtfelds nach und nach entfernt (`SPAWN.dawnBurn`, `SPAWN.cleanup*`). Kolosse werden mit jedem Tag häufiger |
+| Zombie / Läufer / Koloss | Jagen Spieler. Nachts sind sie wilder: schneller, sehen weiter, schlagen öfter und härter zu und kommen in größerer Zahl (`SPAWN.night*`). Basen greifen sie nicht gezielt an, nur was ihnen im Weg steht. Bei Sonnenaufgang zerfallen die Untoten der Nacht (ohne Beute): außer Sicht sofort, sichtbare qualmen ~15 s lang – wer gerade kämpft, kämpft zu Ende. Außerdem werden überzählige, untätige Gegner außerhalb jedes Sichtfelds nach und nach entfernt (`SPAWN.dawnBurn`, `SPAWN.cleanup*`). Kolosse kommen nur nachts und nur in Städten |
 | 🐺 Wolf | Lebt im **Rudel** (3–5) im Wald und auf Wiesen. Der **Alpha** ist größer und stärker und hat dunkles Fell mit heller Halskrause; die anderen folgen ihm und greifen an, was er angreift. Schlägt man einen, wird das ganze Rudel wütend. Fällt der Alpha, flieht das Rudel kurz und der Stärkste übernimmt (mit dem Fell, aber ohne die Extra-Kraft). Jagt Spieler, ignoriert Basen |
 | 🐗 Wildschwein | Friedlich; schlägt man es, verfolgt es den Angreifer. Vor beißenden Raubtieren flieht es |
 | 🐻 Bär | Revier: greift erst aus der Nähe an, verfolgt dann bis zur Leine. Sehr stark. Nur im Wald und höchstens einer pro Gegend |
