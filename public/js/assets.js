@@ -15,8 +15,11 @@ const sources = new Map(); // Name -> { text, vb: [x, y, w, h] } (oder Promise b
 const images = new Map(); // Name|Variablen -> HTMLImageElement (null = lädt noch)
 const sprites = new Map(); // Name|Variablen|Pixelstufe -> Canvas
 let loaded = false;
+// Zählt Zeichenversuche, bei denen die Grafik noch nicht bereit war – wer Ergebnisse zwischenspeichert
+// (z. B. Figuren-Bilder in entities.js), darf das nur, wenn sich der Zähler dabei nicht verändert hat
+export let artMisses = 0;
 
-// Alle Dateien einmal laden (vor dem ersten Spiel, siehe net.js). names: Liste ohne .svg
+// Alle Dateien einmal laden (beim Start, siehe main.js). names: Liste ohne .svg
 export async function loadAssets(names) {
   await Promise.all(names.map(async (name) => {
     const res = await fetch(`assets/${name}.svg`);
@@ -35,8 +38,14 @@ function image(name, vars) {
   let img = images.get(key);
   if (img === undefined) {
     const src = sources.get(name);
-    if (!src) { console.warn('Unbekannte Grafik', name); images.set(key, null); return null; }
-    let text = src.text;
+    if (!src) {
+      if (!loaded) return null; // Dateien laden noch – später erneut versuchen
+      console.warn('Unbekannte Grafik', name);
+      images.set(key, null);
+      return null;
+    }
+    // Firefox zeichnet SVG-Bilder ohne feste Größe nicht auf ein Canvas: Breite & Höhe aus der viewBox ergänzen
+    let text = /<svg[^>]*\swidth=/.test(src.text) ? src.text : src.text.replace('<svg ', `<svg width="${src.vb[2]}" height="${src.vb[3]}" `);
     if (vars) for (const [k, v] of Object.entries(vars)) text = text.replaceAll(`$${k}`, v);
     img = new Image();
     img.ready = false;
@@ -71,7 +80,7 @@ function sprite(name, vars, k) {
 export function art(name, vars) {
   const m = ctx.getTransform(), k = Math.hypot(m.a, m.b);
   const c = sprite(name, vars, k);
-  if (!c) return;
+  if (!c) { artMisses++; return; }
   const [x, y, w, h] = sources.get(name).vb;
   ctx.drawImage(c, x, y, w, h);
 }

@@ -4,7 +4,7 @@ import { ctx, cfg, me, myId, now, players, clock, myAngle, ui, mouse, screenToWo
 import { TAU, LEVEL_COLORS, LEVEL_DARK, ZOMBIE_COLORS, ARROW_TIPS } from '../constants.js';
 import { circle, rrect, hpBar, outlinedText, wrapText } from './primitives.js';
 import { drawItemIcon, drawWeapon, drawGun } from './items.js';
-import { art } from '../assets.js';
+import { art, artMisses } from '../assets.js';
 import { isAllied, snap, placementError, structSize } from '../rules.js';
 import { bubbles } from '../chat.js';
 
@@ -176,8 +176,10 @@ function drawSprite(key, extent, draw) {
     c.width = c.height = Math.ceil(extent * 2 * k) + 2;
     const g = c.getContext('2d');
     g.setTransform(k, 0, 0, k, c.width / 2, c.height / 2);
+    const misses = artMisses;
     drawInto(g, draw);
-    sprites.set(key, c);
+    // Grafik noch nicht geladen: nicht merken, sonst bliebe die Figur dauerhaft unsichtbar
+    if (artMisses === misses) sprites.set(key, c);
   }
   const s = c.width / k;
   ctx.drawImage(c, -s / 2, -s / 2, s, s);
